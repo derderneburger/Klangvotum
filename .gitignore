@@ -1,0 +1,6 @@
+configv2.php
+configlive.php
+backups/*.json
+backups/*.zip
+backups/.last_*
+assets/logos/
