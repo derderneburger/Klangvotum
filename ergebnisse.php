@@ -172,15 +172,7 @@ $base = sv_base_url();
             <?php if(!empty($r['arranger'])): ?><div style="color:var(--muted);font-size:12px">Arr. <?=h($r['arranger'])?></div><?php endif; ?>
           </td>
           <td class="col-genre small" style="display:none"><?=h($r['genre']??'–')?></td>
-          <td class="col-difficulty small" style="display:none"><?php
-            if ($r['difficulty'] !== null && $r['difficulty'] !== '') {
-              $d = (float)$r['difficulty'];
-              if ($d <= 2)     $ds = 'background:var(--green-light);color:var(--green);border-color:var(--green-mid)';
-              elseif ($d <= 4) $ds = 'background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)';
-              else             $ds = 'background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)';
-              echo '<span class="badge" style="'.$ds.'">'.number_format($d,1).'</span>';
-            } else { echo '–'; }
-          ?></td>
+          <td class="col-difficulty small" style="display:none"><?=sv_diff_pill($r['difficulty'])?></td>
           <td class="col-duration small" style="display:none;white-space:nowrap"><?=h($r['duration']??'–')?></td>
 
           <?php
@@ -259,15 +251,7 @@ $base = sv_base_url();
         <div class="card-extra-duration" style="display:none;color:var(--muted)">⏱ <?=h($r['duration']??'–')?></div>
         <div class="card-extra-composer" style="display:none;color:var(--muted)"><?=h($r['composer']??'–')?></div>
         <div class="card-extra-arranger" style="display:none;color:var(--muted)">Arr. <?=h($r['arranger']??'–')?></div>
-        <div class="card-extra-difficulty" style="display:none"><?php
-          if ($r['difficulty'] !== null && $r['difficulty'] !== '') {
-            $d=(float)$r['difficulty'];
-            if($d<=2) $ds='background:var(--green-light);color:var(--green);border-color:var(--green-mid)';
-            elseif($d<=4) $ds='background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)';
-            else $ds='background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)';
-            echo '<span class="badge" style="'.$ds.'">'.number_format($d,1).'</span>';
-          }
-        ?></div>
+        <div class="card-extra-difficulty" style="display:none"><?=sv_diff_pill($r['difficulty'])?></div>
       </div>
       <div class="col-votes" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
         <span class="badge" style="background:var(--green-light);color:var(--green);border-color:var(--green-mid)">✓ <?=h($r['ja_count'])?></span>

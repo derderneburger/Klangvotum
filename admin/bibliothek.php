@@ -38,7 +38,7 @@ function pieceForm(?array $p, string $action): string {
     <label>Verlag<br><input name="publisher" value="<?=$v('publisher')?>" style="width:100%;margin-top:5px"></label>
     <label>Länge<br><input name="duration" value="<?=$v('duration')?>" placeholder="z.B. 6:30" style="width:100%;margin-top:5px"></label>
     <label>Genre<br><input name="genre" value="<?=$v('genre')?>" placeholder="z.B. Konzertmarsch" style="width:100%;margin-top:5px"></label>
-    <label>Gradsgrad (1.0–6.0)<br><input name="difficulty" type="number" step="0.1" min="1" max="6" value="<?=$v('difficulty')?>" style="width:100%;margin-top:5px"></label>
+    <label>Grad (1.0–6.0)<br><input name="difficulty" type="number" step="0.1" min="1" max="6" value="<?=$v('difficulty')?>" style="width:100%;margin-top:5px"></label>
     <label>Eigentümer<br><input name="owner" value="<?=$v('owner')?>" placeholder="z.B. BPH, M.Müller" style="width:100%;margin-top:5px"></label>
     <label>Preis (€)<br><input name="shop_price" type="number" step="0.01" min="0" value="<?=$v('shop_price')?>" style="width:100%;margin-top:5px"></label>
     <label style="grid-column:1/-1">Link zum Händler / Notenversand<br><input name="shop_url" value="<?=$v('shop_url')?>" placeholder="https://…" style="width:100%;margin-top:5px"></label>
@@ -118,15 +118,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $dupExclude = ($action === 'update' && $pid) ? $pid : 0;
     $dupPiece = $pdo->prepare("SELECT id FROM pieces WHERE title=? AND LOWER(TRIM(COALESCE(arranger,'')))=LOWER(TRIM(?)) AND id!=?");
     $dupPiece->execute([$title, $arranger, $dupExclude]); $dupInPieces = $dupPiece->fetch();
-    $dupSong  = $pdo->prepare("SELECT id FROM songs  WHERE title=? AND LOWER(TRIM(COALESCE(arranger,'')))=LOWER(TRIM(?))");
-    $dupSong->execute([$title, $arranger]); $dupInSongs = $dupSong->fetch();
+    $dupInSongs = false;
+    if ($action === 'create') {
+      $dupSong = $pdo->prepare("SELECT id FROM songs WHERE title=? AND LOWER(TRIM(COALESCE(arranger,'')))=LOWER(TRIM(?))");
+      $dupSong->execute([$title, $arranger]); $dupInSongs = $dupSong->fetch();
+    }
 
     if ($title === '') {
       sv_flash_set('error', 'Titel ist Pflichtfeld.');
     } elseif ($dupInPieces || $dupInSongs) {
       sv_flash_set('error', 'Ein Titel mit diesem Namen und Arrangeur existiert bereits' . ($dupInSongs ? ' in der Abstimmung.' : ' in der Bibliothek.'));
     } elseif ($diff !== null && ($diff < 1.0 || $diff > 6.0)) {
-      sv_flash_set('error', 'Gradsgrad muss zwischen 1.0 und 6.0 liegen.');
+      sv_flash_set('error', 'Grad muss zwischen 1.0 und 6.0 liegen.');
     } else {
       try {
         if ($action === 'create') {
@@ -401,14 +404,7 @@ sv_header('Notenbibliothek', $user);
 
 </style>
 <?php
-function diffPill(mixed $d): string {
-  if ($d === null || $d === '') return '<span class="small" style="color:#bbb">–</span>';
-  $d = (float)$d;
-  if ($d <= 2)     $style = 'background:var(--green-light);color:var(--green);border-color:var(--green-mid)';
-  elseif ($d <= 4) $style = 'background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)';
-  else             $style = 'background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)';
-  return '<span class="badge" style="'.$style.'">'.number_format($d,1).'</span>';
-}
+function diffPill(mixed $d): string { return sv_diff_pill($d); }
 ?>
 
 <div class="page-header">
@@ -839,6 +835,7 @@ function openSearchWindow(btn, type) {
 .detail-list-row.active-row { background:#f0f5e8!important;border-left:3px solid var(--green); }
 </style>
 <script>
+function diffStyle(dv){var m={0.5:'#F7F7F8;color:#707784;border-color:#D8DCE2',1:'#F1F3F5;color:#5F6F80;border-color:#CDD5DE',1.5:'#EEF7F0;color:#5A7E61;border-color:#C8E0CD',2:'#DFF5E3;color:#31733F;border-color:#9FD5AA',2.5:'#CBF0D2;color:#246A38;border-color:#77C68A',3:'#C2ECBA;color:#1A6B28;border-color:#4DB860',3.5:'#EDF8C9;color:#61750C;border-color:#B5D63C',4:'#FFF1B8;color:#8A6900;border-color:#E5BF1F',4.5:'#FFE0C2;color:#9B5315;border-color:#F39A49',5:'#FFD9D2;color:#A93A2B;border-color:#EA6C5A',5.5:'#F9CED7;color:#9C2F53;border-color:#DC5E7C',6:'#F2C0CC;color:#8B1A3A;border-color:#CC4060'};var r=Math.max(0.5,Math.min(6,Math.round(dv*2)/2));return 'background:'+(m[r]||m[3]);}
 var currentView = localStorage.getItem('bib_view') || 'table';
 if (currentView !== 'table' && currentView !== 'detail') currentView = 'table';
 
@@ -893,7 +890,7 @@ function showDetail(row) {
   if(!d) return;
   var diff = d.dataset.difficulty;
   var diffHtml = '';
-  if(diff){ var dv=parseFloat(diff),dc=dv<=2?'background:var(--green-light);color:var(--green);border-color:var(--green-mid)':dv<=4?'background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)':'background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)'; diffHtml='<span class="badge" style="'+dc+'">'+dv.toFixed(1)+'</span>'; }
+  if(diff){ var dv=parseFloat(diff); diffHtml='<span class="badge" style="'+diffStyle(dv)+'">'+dv.toFixed(1)+'</span>'; }
   var fields=[['Komponist',d.dataset.composer],['Arrangeur',d.dataset.arranger],['Verlag',d.dataset.publisher],['Dauer',d.dataset.duration],['Genre',d.dataset.genre],['Eigentümer',d.dataset.owner],['Info',d.dataset.info]].filter(function(f){return f[1];});
   var toggles=[];
   if(d.dataset.scan==='1') toggles.push('✓ Stimmen');

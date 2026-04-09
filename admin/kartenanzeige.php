@@ -72,7 +72,7 @@ sv_header('Admin – Abstimmungsanzeige', $admin);
 
         <?php
         $options = [
-          'difficulty' => ['icon' => '🎯', 'label' => 'Gradsgrad', 'sub' => 'Als farbige Pille'],
+          'difficulty' => ['icon' => '🎯', 'label' => 'Grad', 'sub' => 'Als farbige Pille'],
           'composer'   => ['icon' => '🎼', 'label' => 'Komponist',          'sub' => 'Name des Komponisten'],
           'arranger'   => ['icon' => '✏️', 'label' => 'Arrangeur',           'sub' => 'Name des Arrangeurs'],
           'duration'   => ['icon' => '⏱',  'label' => 'Dauer',               'sub' => "z.B. 6:30"],
@@ -121,7 +121,7 @@ sv_header('Admin – Abstimmungsanzeige', $admin);
       <a class="song-link">▶ YouTube öffnen</a>
       <?php
         $pb=[];
-        if(in_array('difficulty',$currentFields)) $pb[]='<span class="badge" style="background:var(--green-light);color:var(--green);border-color:var(--green-mid)">3.5</span>';
+        if(in_array('difficulty',$currentFields)) $pb[]=sv_diff_pill(3.5);
         if(in_array('duration',$currentFields))   $pb[]='<span class="badge">&#9203; 6\'30</span>';
         if(in_array('genre',$currentFields))       $pb[]='<span class="badge">Konzertmarsch</span>';
         if(in_array('shop_url',$currentFields))   $pb[]='<a class="badge" style="text-decoration:none" title="Noten ansehen">🛒 Noten</a>';

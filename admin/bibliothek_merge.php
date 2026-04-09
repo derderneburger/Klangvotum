@@ -151,14 +151,7 @@ function loadVoteHistory(PDO $pdo, int $pid): array {
 $keepVotes = $keepPiece ? loadVoteHistory($pdo, $keepId) : [];
 $delVotes  = $delPiece  ? loadVoteHistory($pdo, $delId)  : [];
 
-function diffPill(mixed $d): string {
-  if ($d === null || $d === '') return '<span style="color:#bbb">–</span>';
-  $d = (float)$d;
-  if ($d <= 2)     $s = 'background:var(--green-light);color:var(--green);border-color:var(--green-mid)';
-  elseif ($d <= 4) $s = 'background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)';
-  else             $s = 'background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)';
-  return '<span class="badge" style="'.$s.'">'.number_format($d,1).'</span>';
-}
+function diffPill(mixed $d): string { return sv_diff_pill($d); }
 
 sv_header('Admin – Stücke zusammenführen', $admin);
 ?>

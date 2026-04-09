@@ -400,3 +400,29 @@ function sv_color_contrast(string $hex): string {
   $lum = 0.2126 * $r + 0.7152 * $g + 0.0722 * $b;
   return $lum > 0.35 ? '#1a1a18' : '#ffffff';
 }
+
+function sv_diff_style(float $d): string {
+  $map = [
+    '0.5' => ['bg' => '#F7F7F8', 'color' => '#707784', 'border' => '#D8DCE2'],
+    '1.0' => ['bg' => '#F1F3F5', 'color' => '#5F6F80', 'border' => '#CDD5DE'],
+    '1.5' => ['bg' => '#EEF7F0', 'color' => '#5A7E61', 'border' => '#C8E0CD'],
+    '2.0' => ['bg' => '#DFF5E3', 'color' => '#31733F', 'border' => '#9FD5AA'],
+    '2.5' => ['bg' => '#CBF0D2', 'color' => '#246A38', 'border' => '#77C68A'],
+    '3.0' => ['bg' => '#C2ECBA', 'color' => '#1A6B28', 'border' => '#4DB860'],
+    '3.5' => ['bg' => '#EDF8C9', 'color' => '#61750C', 'border' => '#B5D63C'],
+    '4.0' => ['bg' => '#FFF1B8', 'color' => '#8A6900', 'border' => '#E5BF1F'],
+    '4.5' => ['bg' => '#FFE0C2', 'color' => '#9B5315', 'border' => '#F39A49'],
+    '5.0' => ['bg' => '#FFD9D2', 'color' => '#A93A2B', 'border' => '#EA6C5A'],
+    '5.5' => ['bg' => '#F9CED7', 'color' => '#9C2F53', 'border' => '#DC5E7C'],
+    '6.0' => ['bg' => '#F2C0CC', 'color' => '#8B1A3A', 'border' => '#CC4060'],
+  ];
+  $rounded = number_format(max(0.5, min(6.0, round($d * 2) / 2)), 1);
+  $c = $map[$rounded] ?? $map['3.0'];
+  return "background:{$c['bg']};color:{$c['color']};border-color:{$c['border']}";
+}
+
+function sv_diff_pill(mixed $d): string {
+  if ($d === null || $d === '') return '<span class="small" style="color:#bbb">–</span>';
+  $d = (float)$d;
+  return '<span class="badge" style="' . sv_diff_style($d) . '">' . number_format($d, 1) . '</span>';
+}

@@ -120,9 +120,7 @@ sv_header('Abstimmen', $user);
       <?php
         $extraBadges=[];
         if(in_array('difficulty',$displayFields)&&!empty($song['difficulty'])){
-          $d=(float)$song['difficulty'];
-          $ds=$d<=2?'background:var(--green-light);color:var(--green);border-color:var(--green-mid)':($d<=4?'background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)':'background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)');
-          $extraBadges[]='<span class="badge" style="'.$ds.'">'.number_format($d,1).'</span>';
+          $extraBadges[]=sv_diff_pill($song['difficulty']);
         }
         if(in_array('duration',$displayFields)&&!empty($song['duration']))
           $extraBadges[]='<span class="badge">⏱ '.h($song['duration']).'</span>';

@@ -271,14 +271,7 @@ $songs = $stmt->fetchAll();
 
 sv_header('Abstimmungstitel', $user);
 
-function diffPill(mixed $d): string {
-  if ($d === null || $d === '') return '<span class="small" style="color:#bbb">–</span>';
-  $d = (float)$d;
-  if ($d <= 2)     $style = 'background:var(--green-light);color:var(--green);border-color:var(--green-mid)';
-  elseif ($d <= 4) $style = 'background:#fff8e1;color:#b8860b;border-color:rgba(184,134,11,.3)';
-  else             $style = 'background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3)';
-  return '<span class="badge" style="'.$style.'">'.number_format($d,1).'</span>';
-}
+function diffPill(mixed $d): string { return sv_diff_pill($d); }
 
 function songFormFields(array $s): string {
   $v = fn(string $k) => htmlspecialchars((string)($s[$k]??''), ENT_QUOTES, 'UTF-8');
