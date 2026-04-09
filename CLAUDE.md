@@ -22,6 +22,8 @@
 - `sv_color_mix(hex, base, amount)` — Zwei Farben mischen
 - `sv_color_variants(hex)` — Gibt `[light, mid]` Varianten zurück (10% bzw. 35% mit Weiß gemischt)
 - `sv_color_contrast(hex)` — WCAG-Luminanz, gibt `#ffffff` oder `#1a1a18` zurück
+- `sv_diff_style(float $d)` — Gibt CSS-Inline-Style für Schwierigkeitsgrad-Badge zurück
+- `sv_diff_pill(mixed $d)` — Gibt fertiges `<span class="badge">` HTML für Schwierigkeitsgrad zurück
 - `sv_log(user_id, action, details)` — Chronik/Audit-Log
 - `sv_flash_set/get` — Flash-Messages über Session
 - `sv_csrf_token() / sv_csrf_check()` — CSRF-Schutz
@@ -60,6 +62,17 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 - `--score: #7a8c0a` — Score-Anzeige immer im Original-Grün
 - `--score-light: #f2f5e4` — Score-Hintergrund
 - `--score-mid: #c8d4a5` — Score-Rahmen
+
+### Schwierigkeitsgrad-Badges (sv_diff_pill / sv_diff_style)
+- 12-Stufen-Farbskala von 0.5 (grau) über 3.0 (kräftig grün) bis 6.0 (rot-rosa)
+- Zentral in `lib/db.php` definiert, alle Seiten nutzen `sv_diff_pill()`
+- JS-Spiegelung in `admin/bibliothek.php` als `diffStyle()` für Detail-Panel
+- **WICHTIG: String-Keys im PHP-Array verwenden!** PHP castet Float-Keys zu Int, d.h. `3.0 =>` und `3.5 =>` werden beide zu Key `3` — Werte überschreiben sich. Immer `'3.0' =>` schreiben.
+- Rundung auf 0.5er-Schritte via `number_format()` → String-Lookup
+
+### Duplikatprüfung Bibliothek
+- Beim **Anlegen**: Prüfung gegen `pieces` UND `songs` (verhindert Doppel-Einträge)
+- Beim **Bearbeiten**: Prüfung nur gegen `pieces` (Songs-Prüfung übersprungen, da das Stück bereits verknüpft sein kann)
 
 ### Trennungsregel
 - `var(--accent)` / `var(--accent-hover)` — Für Branding (Buttons, Links, aktive Elemente)
