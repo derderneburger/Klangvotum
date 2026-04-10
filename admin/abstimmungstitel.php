@@ -53,11 +53,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sid = (int)($_POST['sid'] ?? 0);
     $f   = songFields();
     $ytOptional = !empty($_POST['yt_optional']);
-    // Duplikatprüfung (eigene ID ausschließen)
+    // Duplikatprüfung (eigene ID + verknüpftes Piece ausschließen)
     $dupSong  = $pdo->prepare("SELECT id FROM songs  WHERE title=? AND LOWER(TRIM(COALESCE(arranger,'')))=LOWER(TRIM(?)) AND id!=?");
     $dupSong->execute([$f['title'], $f['arranger'], $sid]); $dupInSongs = $dupSong->fetch();
-    $dupPiece = $pdo->prepare("SELECT id FROM pieces WHERE title=? AND LOWER(TRIM(COALESCE(arranger,'')))=LOWER(TRIM(?))");
-    $dupPiece->execute([$f['title'], $f['arranger']]); $dupInPieces = $dupPiece->fetch();
+    $lpStmt = $pdo->prepare("SELECT piece_id FROM songs WHERE id=?"); $lpStmt->execute([$sid]);
+    $linkedPieceId = (int)($lpStmt->fetchColumn() ?: 0);
+    $dupPiece = $pdo->prepare("SELECT id FROM pieces WHERE title=? AND LOWER(TRIM(COALESCE(arranger,'')))=LOWER(TRIM(?)) AND id!=?");
+    $dupPiece->execute([$f['title'], $f['arranger'], $linkedPieceId ?: 0]); $dupInPieces = $dupPiece->fetch();
     if ($sid <= 0 || $f['title'] === '') { sv_flash_set('error', 'Titel ist Pflichtfeld.'); }
     elseif ($dupInSongs || $dupInPieces) { sv_flash_set('error', 'Ein Titel mit diesem Namen und Arrangeur existiert bereits' . ($dupInPieces ? ' in der Bibliothek.' : ' in der Abstimmung.')); }
     elseif (!$ytOptional && $f['youtube_url'] === '') { sv_flash_set('error', 'YouTube URL ist Pflichtfeld.'); }
