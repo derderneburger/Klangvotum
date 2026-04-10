@@ -19,11 +19,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 // ── CSV Export ────────────────────────────────────────────────────────────────
 if (($_GET['action'] ?? '') === 'export') {
   $rows = $pdo->query("
-    SELECT title, youtube_url, composer, arranger, publisher, duration, genre, difficulty,
-           owner, has_scan, has_score_scan, has_original_score, binder,
-           shop_url, shop_price, info
-    FROM pieces ORDER BY title ASC
+    SELECT p.id, p.title, p.youtube_url, p.composer, p.arranger, p.publisher, p.duration, p.difficulty,
+           p.owner, p.has_scan, p.has_score_scan, p.has_original_score, p.binder,
+           p.shop_url, p.shop_price, p.info
+    FROM pieces p ORDER BY p.title ASC
   ")->fetchAll();
+  $exportPieceIds = array_column($rows, 'id');
+  $exportTags = sv_tags_for_pieces($exportPieceIds);
 
   header('Content-Type: text/csv; charset=utf-8');
   header('Content-Disposition: attachment; filename="bibliothek_' . date('Y-m-d') . '.csv"');
@@ -35,7 +37,7 @@ if (($_GET['action'] ?? '') === 'export') {
   foreach ($rows as $r) {
     fputcsv($f, [
       $r['title'], $r['youtube_url'] ?? '', $r['composer'], $r['arranger'], $r['publisher'],
-      $r['duration'], $r['genre'], $r['difficulty'], $r['owner'],
+      $r['duration'], implode(' / ', $exportTags[(int)$r['id']] ?? []), $r['difficulty'], $r['owner'],
       $r['has_scan'] ? 'ja' : 'nein',
       $r['has_score_scan'] ? 'ja' : 'nein',
       $r['has_original_score'] ? 'ja' : 'nein',
@@ -108,10 +110,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'delet
 
         try {
           $stmt = $pdo->prepare("INSERT INTO pieces
-            (title, youtube_url, composer, arranger, publisher, duration, genre, difficulty,
+            (title, youtube_url, composer, arranger, publisher, duration, difficulty,
              owner, has_scan, has_score_scan, has_original_score, binder,
              shop_url, shop_price, info)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
           $stmt->execute([
             $title,
             trim($data['youtube_url'] ?? ''),
@@ -119,7 +121,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'delet
             trim($data['arrangeur']   ?? $data['arranger']  ?? ''),
             trim($data['verlag']      ?? $data['publisher'] ?? ''),
             sv_normalize_duration(trim($data['laenge'] ?? $data['duration'] ?? '')),
-            trim($data['genre']       ?? ''),
             $diff,
             trim($data['eigentuemer'] ?? $data['owner'] ?? ''),
             $yn('stimmen_scan'), $yn('partitur_scan'), $yn('original_partitur'),
@@ -128,6 +129,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'delet
             $price,
             trim($data['info'] ?? ''),
           ]);
+          $newPieceId = (int)$pdo->lastInsertId();
+          // Tags aus genre-Spalte parsen
+          $genreStr = trim($data['genre'] ?? '');
+          if ($genreStr !== '') {
+            $tagNames = array_filter(array_map('trim', preg_split('/\s*\/\s*/', $genreStr)));
+            if ($tagNames) sv_sync_tags('piece', $newPieceId, $tagNames);
+          }
           $imported++;
           $importLog[] = ['titel' => $title, 'arrangeur' => $arrImport];
         } catch (Throwable $e) {
@@ -258,7 +266,7 @@ document.addEventListener('click',function(e){
           <tr><td><code>arrangeur</code></td><td><span class="badge">optional</span></td><td class="small">Arrangeur</td></tr>
           <tr><td><code>verlag</code></td><td><span class="badge">optional</span></td><td class="small">Verlag</td></tr>
           <tr><td><code>laenge</code></td><td><span class="badge">optional</span></td><td class="small">Länge, z.B. 6:30</td></tr>
-          <tr><td><code>genre</code></td><td><span class="badge">optional</span></td><td class="small">Genre</td></tr>
+          <tr><td><code>genre</code></td><td><span class="badge">optional</span></td><td class="small">Tags (mehrere mit / getrennt, z.B. „Marsch / Konzertwerk")</td></tr>
           <tr><td><code>grad</code></td><td><span class="badge">optional</span></td><td class="small">Zahl 1.0–6.0</td></tr>
           <tr><td><code>eigentuemer</code></td><td><span class="badge">optional</span></td><td class="small">Eigentümer der Noten</td></tr>
           <tr><td><code>stimmen_scan</code></td><td><span class="badge">optional</span></td><td class="small">ja / nein</td></tr>

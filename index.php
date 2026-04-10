@@ -17,7 +17,7 @@ $displayFields = array_filter(explode(',', $displayFieldsRaw));
 
 $stmt = $pdo->prepare("
   SELECT s.id, s.title, s.youtube_url, s.composer, s.arranger, s.duration,
-         s.difficulty, s.genre, s.info, s.shop_url, s.piece_id,
+         s.difficulty, s.info, s.shop_url, s.piece_id,
          v.vote AS my_vote,
          vn.note AS my_note
   FROM songs s
@@ -49,6 +49,10 @@ if ($songPieceIds) {
     }
   }
 }
+
+// Tags vorladen
+$indexSongIds = array_column($songs, 'id');
+$tagsBySongIdx = sv_tags_for_songs($indexSongIds);
 
 $total   = count($songs);
 $done    = 0;
@@ -124,8 +128,9 @@ sv_header('Abstimmen', $user);
         }
         if(in_array('duration',$displayFields)&&!empty($song['duration']))
           $extraBadges[]='<span class="badge">⏱ '.h($song['duration']).'</span>';
-        if(in_array('genre',$displayFields)&&!empty($song['genre']))
-          $extraBadges[]='<span class="badge">'.h($song['genre']).'</span>';
+        if(in_array('genre',$displayFields)&&!empty($tagsBySongIdx[(int)$song['id']]))
+          foreach($tagsBySongIdx[(int)$song['id']] as $tagName)
+            $extraBadges[]='<span class="badge">'.h($tagName).'</span>';
         if(in_array('shop_url',$displayFields)&&!empty($song['shop_url']))
           $extraBadges[]='<a href="'.h($song['shop_url']).'" target="_blank" rel="noopener" class="badge" style="text-decoration:none" title="Noten ansehen">🛒 Noten</a>';
         if($extraBadges):

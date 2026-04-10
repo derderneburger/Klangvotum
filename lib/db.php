@@ -284,6 +284,77 @@ function sv_ensure_schema(PDO $pdo): void {
       setting_value TEXT,
       PRIMARY KEY (setting_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+  // ── v2: Tags — ersetzt Genre-Textfeld ──────────────────────────────────
+  try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS tags (
+        id   INT NOT NULL AUTO_INCREMENT,
+        name VARCHAR(100) NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_tags_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // piece_tags: erst ohne FK versuchen falls Engine/Typ-Mismatch
+    $pdo->exec("CREATE TABLE IF NOT EXISTS piece_tags (
+        piece_id INT NOT NULL,
+        tag_id   INT NOT NULL,
+        PRIMARY KEY (piece_id, tag_id),
+        KEY idx_pt_tag (tag_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS song_tags (
+        song_id INT NOT NULL,
+        tag_id  INT NOT NULL,
+        PRIMARY KEY (song_id, tag_id),
+        KEY idx_st_tag (tag_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // FK-Constraints nachträglich hinzufügen (ignoriert Fehler bei Engine/Typ-Mismatch)
+    try { $pdo->exec("ALTER TABLE piece_tags ADD CONSTRAINT fk_pt_piece FOREIGN KEY (piece_id) REFERENCES pieces (id) ON DELETE CASCADE"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE piece_tags ADD CONSTRAINT fk_pt_tag   FOREIGN KEY (tag_id)   REFERENCES tags   (id) ON DELETE CASCADE"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE song_tags  ADD CONSTRAINT fk_st_song  FOREIGN KEY (song_id)  REFERENCES songs  (id) ON DELETE CASCADE"); } catch (Throwable $e) {}
+    try { $pdo->exec("ALTER TABLE song_tags  ADD CONSTRAINT fk_st_tag   FOREIGN KEY (tag_id)   REFERENCES tags   (id) ON DELETE CASCADE"); } catch (Throwable $e) {}
+  } catch (Throwable $e) {}
+
+  // Migration: bestehende Genre-Texte in Tags umwandeln
+  try {
+    $migrated = $pdo->query("SELECT COUNT(*) FROM tags")->fetchColumn();
+    if ((int)$migrated === 0) {
+      // Alle Genre-Werte aus pieces und songs sammeln
+      $genres = [];
+      foreach ($pdo->query("SELECT id, genre FROM pieces WHERE genre IS NOT NULL AND genre != ''")->fetchAll() as $r) {
+        $genres['piece'][$r['id']] = $r['genre'];
+      }
+      foreach ($pdo->query("SELECT id, genre FROM songs WHERE genre IS NOT NULL AND genre != ''")->fetchAll() as $r) {
+        $genres['song'][$r['id']] = $r['genre'];
+      }
+      // Tags anlegen und zuordnen
+      $tagCache = [];
+      $insertTag = $pdo->prepare("INSERT IGNORE INTO tags (name) VALUES (?)");
+      $insertPT  = $pdo->prepare("INSERT IGNORE INTO piece_tags (piece_id, tag_id) VALUES (?, ?)");
+      $insertST  = $pdo->prepare("INSERT IGNORE INTO song_tags (song_id, tag_id) VALUES (?, ?)");
+      $findTag   = $pdo->prepare("SELECT id FROM tags WHERE name = ?");
+      foreach (['piece', 'song'] as $type) {
+        foreach ($genres[$type] ?? [] as $entityId => $genreStr) {
+          $parts = preg_split('/\s*\/\s*/', trim($genreStr));
+          foreach ($parts as $part) {
+            $part = trim($part);
+            if ($part === '') continue;
+            if (!isset($tagCache[$part])) {
+              $insertTag->execute([$part]);
+              $findTag->execute([$part]);
+              $tagCache[$part] = (int)$findTag->fetchColumn();
+            }
+            if ($type === 'piece') {
+              $insertPT->execute([$entityId, $tagCache[$part]]);
+            } else {
+              $insertST->execute([$entityId, $tagCache[$part]]);
+            }
+          }
+        }
+      }
+    }
+  } catch (Throwable $e) {}
 }
 
 function sv_base_url(): string {
@@ -425,4 +496,118 @@ function sv_diff_pill(mixed $d): string {
   if ($d === null || $d === '') return '<span class="small" style="color:#bbb">–</span>';
   $d = (float)$d;
   return '<span class="badge" style="' . sv_diff_style($d) . '">' . number_format($d, 1) . '</span>';
+}
+
+// ── Tag-Helpers ──────────────────────────────────────────────────────────────
+
+function sv_all_tags(): array {
+  try {
+    return sv_pdo()->query("SELECT id, name FROM tags ORDER BY name ASC")->fetchAll();
+  } catch (Throwable $e) { return []; }
+}
+
+function sv_tags_for_piece(int $pieceId): array {
+  try {
+    $stmt = sv_pdo()->prepare("SELECT t.name FROM tags t JOIN piece_tags pt ON pt.tag_id=t.id WHERE pt.piece_id=? ORDER BY t.name");
+    $stmt->execute([$pieceId]);
+    return array_column($stmt->fetchAll(), 'name');
+  } catch (Throwable $e) { return []; }
+}
+
+function sv_tags_for_song(int $songId): array {
+  try {
+    $stmt = sv_pdo()->prepare("SELECT t.name FROM tags t JOIN song_tags st ON st.tag_id=t.id WHERE st.song_id=? ORDER BY t.name");
+    $stmt->execute([$songId]);
+    return array_column($stmt->fetchAll(), 'name');
+  } catch (Throwable $e) { return []; }
+}
+
+function sv_tags_for_pieces(array $pieceIds): array {
+  if (!$pieceIds) return [];
+  try {
+    $ph = implode(',', array_map('intval', $pieceIds));
+    $rows = sv_pdo()->query("SELECT pt.piece_id, t.name FROM tags t JOIN piece_tags pt ON pt.tag_id=t.id WHERE pt.piece_id IN ($ph) ORDER BY t.name")->fetchAll();
+    $map = [];
+    foreach ($rows as $r) $map[(int)$r['piece_id']][] = $r['name'];
+    return $map;
+  } catch (Throwable $e) { return []; }
+}
+
+function sv_tags_for_songs(array $songIds): array {
+  if (!$songIds) return [];
+  try {
+    $ph = implode(',', array_map('intval', $songIds));
+    $rows = sv_pdo()->query("SELECT st.song_id, t.name FROM tags t JOIN song_tags st ON st.tag_id=t.id WHERE st.song_id IN ($ph) ORDER BY t.name")->fetchAll();
+    $map = [];
+    foreach ($rows as $r) $map[(int)$r['song_id']][] = $r['name'];
+    return $map;
+  } catch (Throwable $e) { return []; }
+}
+
+function sv_sync_tags(string $type, int $entityId, array $tagNames): void {
+  try {
+    $pdo = sv_pdo();
+    $junction = $type === 'piece' ? 'piece_tags' : 'song_tags';
+    $fk       = $type === 'piece' ? 'piece_id'   : 'song_id';
+
+    // Bestehende Tags entfernen
+    $pdo->prepare("DELETE FROM $junction WHERE $fk = ?")->execute([$entityId]);
+
+    if (!$tagNames) return;
+
+    $insertTag = $pdo->prepare("INSERT IGNORE INTO tags (name) VALUES (?)");
+    $findTag   = $pdo->prepare("SELECT id FROM tags WHERE name = ?");
+    $insertJunction = $pdo->prepare("INSERT IGNORE INTO $junction ($fk, tag_id) VALUES (?, ?)");
+
+    foreach ($tagNames as $name) {
+      $name = trim($name);
+      if ($name === '') continue;
+      $insertTag->execute([$name]);
+      $findTag->execute([$name]);
+      $tagId = (int)$findTag->fetchColumn();
+      if ($tagId) $insertJunction->execute([$entityId, $tagId]);
+    }
+  } catch (Throwable $e) {}
+}
+
+function sv_tag_badges(array $tagNames): string {
+  if (!$tagNames) return '<span class="small" style="color:#bbb">–</span>';
+  return implode(' ', array_map(function($t) {
+    return '<span class="badge">' . htmlspecialchars($t, ENT_QUOTES, 'UTF-8') . '</span>';
+  }, $tagNames));
+}
+
+function sv_tag_widget(array $allTags, array $selectedTags, string $fieldName = 'tags'): string {
+  $canDelete = false;
+  try { $u = sv_current_user(); $canDelete = $u && sv_can_edit_noten($u); } catch (Throwable $e) {}
+  $uid = 'tw' . mt_rand(1000,9999);
+  ob_start();
+  ?>
+  <fieldset class="genre-widget" id="<?=$uid?>" style="border:1px solid var(--border);border-radius:8px;padding:10px;margin:0">
+    <legend style="font-weight:600;font-size:14px;padding:0 6px">Genre</legend>
+    <div class="genre-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:24px">
+      <?php foreach ($selectedTags as $t): ?>
+      <span class="genre-chip badge" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:12px">
+        <?=htmlspecialchars($t, ENT_QUOTES, 'UTF-8')?>
+        <input type="hidden" name="<?=htmlspecialchars($fieldName, ENT_QUOTES)?>[]" value="<?=htmlspecialchars($t, ENT_QUOTES, 'UTF-8')?>">
+        <span onclick="this.parentElement.remove();svGenreRefresh(this)" style="cursor:pointer;font-weight:700;line-height:1;opacity:.6">&times;</span>
+      </span>
+      <?php endforeach; ?>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <select class="genre-dropdown" onchange="svGenreAdd(this)" style="flex:1;padding:4px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px;min-width:120px;background:#fff">
+        <option value="">Genre wählen…</option>
+        <?php foreach ($allTags as $tag): ?>
+        <option value="<?=htmlspecialchars($tag['name'], ENT_QUOTES, 'UTF-8')?>" data-tag-id="<?=(int)$tag['id']?>"<?=in_array($tag['name'], $selectedTags) ? ' disabled' : ''?>><?=htmlspecialchars($tag['name'], ENT_QUOTES, 'UTF-8')?></option>
+        <?php endforeach; ?>
+      </select>
+      <input type="text" class="tag-new-input" placeholder="Neues Genre…" style="width:130px;padding:4px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px">
+      <button type="button" class="btn" style="padding:4px 10px;font-size:12px" onclick="svAddNewTag(this)">+</button>
+      <?php if ($canDelete): ?>
+      <button type="button" class="btn" style="padding:4px 10px;font-size:12px;color:var(--red)" onclick="svDeleteTagMenu(this)" title="Genre global löschen">🗑</button>
+      <?php endif; ?>
+    </div>
+  </fieldset>
+  <?php
+  return ob_get_clean();
 }

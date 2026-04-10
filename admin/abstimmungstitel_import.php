@@ -19,10 +19,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delet
 // ── CSV Export ────────────────────────────────────────────────────────────────
 if (($_GET['action'] ?? '') === 'export') {
   $rows = $pdo->query("
-    SELECT title, youtube_url, composer, arranger, publisher, duration, genre,
-           difficulty, shop_url, shop_price, info, is_active
-    FROM songs ORDER BY title ASC
+    SELECT s.id, s.title, s.youtube_url, s.composer, s.arranger, s.publisher, s.duration,
+           s.difficulty, s.shop_url, s.shop_price, s.info, s.is_active
+    FROM songs s ORDER BY s.title ASC
   ")->fetchAll();
+  $exportSongIds = array_column($rows, 'id');
+  $exportSongTags = sv_tags_for_songs($exportSongIds);
 
   header('Content-Type: text/csv; charset=utf-8');
   header('Content-Disposition: attachment; filename="abstimmung_titel_' . date('Y-m-d') . '.csv"');
@@ -33,7 +35,7 @@ if (($_GET['action'] ?? '') === 'export') {
   foreach ($rows as $r) {
     fputcsv($f, [
       $r['title'], $r['youtube_url'], $r['composer'], $r['arranger'],
-      $r['publisher'], $r['duration'], $r['genre'], $r['difficulty'],
+      $r['publisher'], $r['duration'], implode(' / ', $exportSongTags[(int)$r['id']] ?? []), $r['difficulty'],
       $r['shop_url'], $r['shop_price'], $r['info'], $r['is_active'] ? 'ja' : 'nein'
     ], ';');
   }
@@ -103,21 +105,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
           $stmt = $pdo->prepare("INSERT INTO songs
-            (title, youtube_url, composer, arranger, publisher, duration, genre,
+            (title, youtube_url, composer, arranger, publisher, duration,
              difficulty, shop_url, shop_price, info, is_active)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,1)");
+            VALUES (?,?,?,?,?,?,?,?,?,?,1)");
           $stmt->execute([
             $title, $url,
             trim($data['komponist'] ?? $data['composer']  ?? ''),
             trim($data['arrangeur'] ?? $data['arranger']  ?? ''),
             trim($data['verlag']    ?? $data['publisher'] ?? ''),
             sv_normalize_duration(trim($data['laenge'] ?? $data['duration'] ?? '')),
-            trim($data['genre']     ?? ''),
             $diff,
             trim($data['haendler_url'] ?? $data['shop_url'] ?? ''),
             $price,
             trim($data['info'] ?? ''),
           ]);
+          $newSongId = (int)$pdo->lastInsertId();
+          // Tags aus genre-Spalte parsen
+          $genreStr = trim($data['genre'] ?? '');
+          if ($genreStr !== '') {
+            $tagNames = array_filter(array_map('trim', preg_split('/\s*\/\s*/', $genreStr)));
+            if ($tagNames) sv_sync_tags('song', $newSongId, $tagNames);
+          }
           $imported++;
           $importLog[] = ['titel' => $title, 'arrangeur' => $arrImport];
         } catch (Throwable $e) {
@@ -248,7 +256,7 @@ document.addEventListener('click',function(e){
           <tr><td><code>arrangeur</code></td><td><span class="badge">optional</span></td><td class="small">Arrangeur</td></tr>
           <tr><td><code>verlag</code></td><td><span class="badge">optional</span></td><td class="small">Verlag</td></tr>
           <tr><td><code>laenge</code></td><td><span class="badge">optional</span></td><td class="small">Länge — 3'30, 3:30 oder 03:30 werden automatisch zu 3'30</td></tr>
-          <tr><td><code>genre</code></td><td><span class="badge">optional</span></td><td class="small">Genre</td></tr>
+          <tr><td><code>genre</code></td><td><span class="badge">optional</span></td><td class="small">Tags (mehrere mit / getrennt, z.B. „Marsch / Konzertwerk")</td></tr>
           <tr><td><code>grad</code></td><td><span class="badge">optional</span></td><td class="small">Zahl 1.0–6.0</td></tr>
           <tr><td><code>haendler_url</code></td><td><span class="badge">optional</span></td><td class="small">Link zum Händler</td></tr>
           <tr><td><code>preis</code></td><td><span class="badge">optional</span></td><td class="small">Preis in €, z.B. 45.00</td></tr>

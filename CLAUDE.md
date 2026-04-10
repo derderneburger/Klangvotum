@@ -34,6 +34,18 @@
 - Soft-Delete-Pattern: `deleted_at` Spalte statt echtem Löschen (Konzerte, Abstimmungstitel, Bibliothek)
 - `sv_ensure_schema()` in `lib/db.php` erstellt alle Tabellen automatisch
 
+### Genre-System (Tags)
+- **Technisch** 3 Tabellen: `tags`, `piece_tags`, `song_tags` (Many-to-Many)
+- **UI-Label** ist "Genre" (nicht "Tags"), technische Variablennamen bleiben `tag`/`tags`
+- Genre-Widget: Dropdown + Chips (Auswahl per `<select>`, gewählte als entfernbare Badges)
+- Neues Genre inline anlegbar (Textfeld + Button im Widget)
+- Genre global löschbar über API (`api/tag.php`) — nur wenn nirgends vergeben
+- Alte `genre` VARCHAR-Spalte existiert noch in DB, wird aber nicht mehr genutzt
+- Migration: `sv_ensure_schema()` liest einmalig bestehende Genre-Texte und splittet sie in Tags
+- Helper-Funktionen: `sv_all_tags()`, `sv_tags_for_piece/song/pieces/songs()`, `sv_sync_tags()`, `sv_tag_badges()`, `sv_tag_widget()`
+- CSV Import/Export behält Spaltenname `genre` für Kompatibilität, trennt mehrere Genres mit ` / `
+- Sync: Wenn Piece→Song oder Song→Piece übertragen wird, werden Genres mitkopiert
+
 ### Rollen
 - `admin` — Vollzugriff, immer "Admin" (nicht umbenennbar)
 - `leitung` — Erweiterte Rechte (Label konfigurierbar, z.B. "Dirigent")

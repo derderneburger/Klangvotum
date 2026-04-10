@@ -9,7 +9,7 @@ $cfg  = sv_config();
 
 // Alle Stücke mit Mappe, alphabetisch
 $pieces = $pdo->query("
-  SELECT title, composer, arranger, publisher, duration, genre, difficulty, owner
+  SELECT title, composer, arranger, publisher, duration, difficulty, owner
   FROM pieces
   WHERE binder IS NOT NULL AND binder != ''
   ORDER BY title ASC

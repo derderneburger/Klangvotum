@@ -14,7 +14,6 @@ $rows = $pdo->query("
     s.duration,
     s.composer,
     s.arranger,
-    s.genre,
     s.difficulty,
     SUM(CASE WHEN v.vote='ja' THEN 1 ELSE 0 END) AS ja_count,
     SUM(CASE WHEN v.vote='nein' THEN 1 ELSE 0 END) AS nein_count,
@@ -86,6 +85,10 @@ if (($_GET['export'] ?? '') === 'csv') {
   exit;
 }
 
+// Tags vorladen
+$ergSongIds = array_column($rows, 'id');
+$tagsBySongErg = sv_tags_for_songs($ergSongIds);
+
 sv_header('Admin – Ergebnisse', $admin);
 $base = sv_base_url();
 ?>
@@ -111,7 +114,7 @@ $base = sv_base_url();
   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
     <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Spalten</span>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-composer" onchange="toggleCol('composer',this.checked);toggleCol('arranger',this.checked)"> Komponist / Arrangeur</label>
-    <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-genre"      onchange="toggleCol('genre',this.checked)"> Genre</label>
+    <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-genre"      onchange="toggleCol('genre',this.checked)"> Tags</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-difficulty" onchange="toggleCol('difficulty',this.checked)"> Grad</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-duration"   onchange="toggleCol('duration',this.checked)"> Länge</label>
     <?php if($canSeeNotes): ?><label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-notes"      onchange="toggleCol('notes',this.checked)" checked> Notizen</label><?php endif; ?>
@@ -144,7 +147,7 @@ $base = sv_base_url();
         $rank++;
       ?>
         <?php $notesJson = htmlspecialchars(json_encode($notesBySong[(int)$r['id']] ?? []), ENT_QUOTES); ?>
-        <tr data-title="<?=h(mb_strtolower($r['title']))?>" data-composer="<?=h(mb_strtolower($r['composer']??''))?>" data-arranger="<?=h(mb_strtolower($r['arranger']??''))?>" data-genre="<?=h(mb_strtolower($r['genre']??''))?>" data-difficulty="<?=h($r['difficulty']??'')?>" data-duration="<?=h($r['duration']??'')?>" data-ja="<?=h($r['ja_count'])?>" data-nein="<?=h($r['nein_count'])?>" data-neutral="<?=h($r['neutral_count'])?>" data-total="<?=h($r['total_votes'])?>" data-score="<?=h($score)?>" data-notes="<?=$notesJson?>">
+        <tr data-title="<?=h(mb_strtolower($r['title']))?>" data-composer="<?=h(mb_strtolower($r['composer']??''))?>" data-arranger="<?=h(mb_strtolower($r['arranger']??''))?>" data-genre="<?=h(mb_strtolower(implode(', ', $tagsBySongErg[(int)$r['id']] ?? [])))?>" data-difficulty="<?=h($r['difficulty']??'')?>" data-duration="<?=h($r['duration']??'')?>" data-ja="<?=h($r['ja_count'])?>" data-nein="<?=h($r['nein_count'])?>" data-neutral="<?=h($r['neutral_count'])?>" data-total="<?=h($r['total_votes'])?>" data-score="<?=h($score)?>" data-notes="<?=$notesJson?>">
           <td style="min-width:180px">
             <div style="display:flex;align-items:baseline;gap:8px">
               <?php if($canSeeNotes): ?><input type="checkbox" class="dur-check" data-dur="<?=h($r['duration']??'')?>" style="flex-shrink:0;margin-top:2px;cursor:pointer" title="Zur Zeitberechnung hinzufügen"><?php endif; ?>
@@ -155,7 +158,7 @@ $base = sv_base_url();
                 data-title="<?=h($r['title'])?>"
                 data-composer="<?=h($r['composer']??'')?>"
                 data-arranger="<?=h($r['arranger']??'')?>"
-                data-genre="<?=h($r['genre']??'')?>"
+                data-genre="<?=h(implode(', ', $tagsBySongErg[(int)$r['id']] ?? []))?>"
                 data-duration="<?=h($r['duration']??'')?>"
                 data-difficulty="<?=h($r['difficulty']??'')?>"
                 data-youtube="<?=h($r['youtube_url']??'')?>"
@@ -171,7 +174,7 @@ $base = sv_base_url();
             <?=h($r['composer']??'–')?>
             <?php if(!empty($r['arranger'])): ?><div style="color:var(--muted);font-size:12px">Arr. <?=h($r['arranger'])?></div><?php endif; ?>
           </td>
-          <td class="col-genre small" style="display:none"><?=h($r['genre']??'–')?></td>
+          <td class="col-genre small" style="display:none"><?= sv_tag_badges($tagsBySongErg[(int)$r['id']] ?? []) ?></td>
           <td class="col-difficulty small" style="display:none"><?=sv_diff_pill($r['difficulty'])?></td>
           <td class="col-duration small" style="display:none;white-space:nowrap"><?=h($r['duration']??'–')?></td>
 
@@ -247,7 +250,7 @@ $base = sv_base_url();
         </div>
       </div>
       <div class="card-extra" style="display:none;border-top:1px solid var(--border);padding-top:8px;margin-top:2px;font-size:13px">
-        <div class="card-extra-genre" style="display:none;color:var(--muted)"><?=h($r['genre']??'–')?></div>
+        <div class="card-extra-genre" style="display:none;color:var(--muted)"><?=h(implode(', ', $tagsBySongErg[(int)$r['id']] ?? []) ?: '–')?></div>
         <div class="card-extra-duration" style="display:none;color:var(--muted)">⏱ <?=h($r['duration']??'–')?></div>
         <div class="card-extra-composer" style="display:none;color:var(--muted)"><?=h($r['composer']??'–')?></div>
         <div class="card-extra-arranger" style="display:none;color:var(--muted)">Arr. <?=h($r['arranger']??'–')?></div>

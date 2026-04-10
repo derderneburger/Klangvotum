@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   }
 
   // Felder aus dem zu löschenden Stück übernehmen wenn Keep-Felder leer sind
-  $fields = ['youtube_url','composer','arranger','publisher','duration','genre',
+  $fields = ['youtube_url','composer','arranger','publisher','duration',
              'difficulty','owner','has_scan','has_score_scan','has_original_score',
              'binder','shop_url','shop_price','info'];
 
@@ -54,11 +54,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ")->execute([$dv['user_id'], $keepId, $dv['vote'], $dv['note'], $dv['archived_at']]);
     }
 
-    // 2. Aktive Songs umhängen
+    // 2. Tags vom zu löschenden Stück sichern (bevor CASCADE sie löscht)
+    $delTags = sv_tags_for_piece($deleteId);
+
+    // 3. Aktive Songs umhängen
     $pdo->prepare("UPDATE songs SET piece_id=? WHERE piece_id=?")->execute([$keepId, $deleteId]);
 
-    // 3. Zu löschendes Stück JETZT löschen (vor dem Update, damit Unique-Key frei wird)
+    // 4. Zu löschendes Stück JETZT löschen (vor dem Update, damit Unique-Key frei wird)
     $pdo->prepare("DELETE FROM pieces WHERE id=?")->execute([$deleteId]);
+
+    // 5. Tags vom gelöschten Piece zum Keep-Piece hinzufügen
+    $keepTags = sv_tags_for_piece($keepId);
+    $mergedTags = array_unique(array_merge($keepTags, $delTags));
+    if ($mergedTags) sv_sync_tags('piece', $keepId, $mergedTags);
 
     // 4. Jetzt Keep-Eintrag updaten — nur was der User explizit übernehmen will
     $sets = [];
@@ -78,12 +86,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($fp) {
       $linkedSongs = $pdo->prepare("SELECT id FROM songs WHERE piece_id=?"); $linkedSongs->execute([$keepId]);
       foreach ($linkedSongs->fetchAll() as $ls) {
-        $pdo->prepare("UPDATE songs SET title=?,youtube_url=?,composer=?,arranger=?,publisher=?,duration=?,genre=?,difficulty=?,shop_url=?,shop_price=?,info=? WHERE id=?")
-          ->execute([$fp['title'],$fp['youtube_url'],$fp['composer'],$fp['arranger'],$fp['publisher'],$fp['duration'],$fp['genre'],$fp['difficulty'],$fp['shop_url'],$fp['shop_price'],$fp['info'],$ls['id']]);
+        $pdo->prepare("UPDATE songs SET title=?,youtube_url=?,composer=?,arranger=?,publisher=?,duration=?,difficulty=?,shop_url=?,shop_price=?,info=? WHERE id=?")
+          ->execute([$fp['title'],$fp['youtube_url'],$fp['composer'],$fp['arranger'],$fp['publisher'],$fp['duration'],$fp['difficulty'],$fp['shop_url'],$fp['shop_price'],$fp['info'],$ls['id']]);
+        // Tags vom Keep-Piece auf verknüpfte Songs kopieren
+        $keepTags = sv_tags_for_piece($keepId);
+        sv_sync_tags('song', (int)$ls['id'], $keepTags);
       }
     }
-
-    // (Song-Sync bereits oben erledigt)
 
     $pdo->commit();
     sv_log($admin['id'], 'pieces_merge', "keep=$keepId delete=$deleteId");
@@ -251,7 +260,6 @@ sv_header('Admin – Stücke zusammenführen', $admin);
           'arranger'    => 'Arrangeur',
           'publisher'   => 'Verlag',
           'duration'    => 'Dauer',
-          'genre'       => 'Genre',
           'difficulty'  => 'Grad',
           'owner'       => 'Eigentümer',
           'youtube_url' => 'YouTube',

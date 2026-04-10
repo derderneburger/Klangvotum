@@ -329,7 +329,7 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
 
 // ── Abstimmungstitel laden ────────────────────────────────────────────────────
 $songs = $pdo->query("
-  SELECT s.id, s.title, s.composer, s.arranger, s.duration, s.genre, s.difficulty,
+  SELECT s.id, s.title, s.composer, s.arranger, s.duration, s.difficulty,
          s.youtube_url, s.piece_id,
          SUM(v.vote='ja')      AS ja_count,
          SUM(v.vote='nein')    AS nein_count,
@@ -345,11 +345,17 @@ $songs = $pdo->query("
 $activePieceIds = array_filter(array_column($songs, 'piece_id'));
 $ph = $activePieceIds ? implode(',', array_map('intval', $activePieceIds)) : '0';
 $pieces = $pdo->query("
-  SELECT id, title, composer, arranger, duration, genre, difficulty, youtube_url
+  SELECT id, title, composer, arranger, duration, difficulty, youtube_url
   FROM pieces
   WHERE id NOT IN ($ph)
   ORDER BY title ASC
 ")->fetchAll();
+
+// Tags vorladen für Suche
+$planerSongIds = array_column($songs, 'id');
+$planerPieceIds = array_column($pieces, 'id');
+$planerSongTags = sv_tags_for_songs($planerSongIds);
+$planerPieceTags = sv_tags_for_pieces($planerPieceIds);
 
 // Set der bereits im Plan genutzten Stuecke
 $usedKeys = [];
@@ -432,7 +438,7 @@ sv_header('Konzertplaner', $admin);
           $scBorder= $score > 0 ? 'var(--score-mid)' : ($score < 0 ? 'rgba(193,9,15,.3)' : '#ddd');
           $used = isset($usedKeys['song:' . $s['id']]);
         ?>
-          <tr data-search="<?=h(strtolower($s['title'].' '.($s['composer']??'').' '.($s['arranger']??'').' '.($s['genre']??'')))?>"
+          <tr data-search="<?=h(strtolower($s['title'].' '.($s['composer']??'').' '.($s['arranger']??'').' '.implode(' ', $planerSongTags[(int)$s['id']] ?? [])))?>"
               data-source="song" data-piece-id="<?=$s['id']?>"
               data-title="<?=h($s['title'])?>"
               data-composer="<?=h($s['composer'] ?? '')?>"
@@ -474,7 +480,7 @@ sv_header('Konzertplaner', $admin);
         <?php foreach ($pieces as $p):
           $used = isset($usedKeys['piece:' . $p['id']]);
         ?>
-          <tr data-search="<?=h(strtolower($p['title'].' '.($p['composer']??'').' '.($p['arranger']??'').' '.($p['genre']??'')))?>"
+          <tr data-search="<?=h(strtolower($p['title'].' '.($p['composer']??'').' '.($p['arranger']??'').' '.implode(' ', $planerPieceTags[(int)$p['id']] ?? [])))?>"
               data-source="piece" data-piece-id="<?=$p['id']?>"
               data-title="<?=h($p['title'])?>"
               data-composer="<?=h($p['composer'] ?? '')?>"

@@ -9,7 +9,10 @@ $isAdmin = sv_is_admin($user); // Admin: Import/Export/Zusammenführen/Löschen
 $canEdit = sv_can_edit_noten($user); // Admin + Noten: Bearbeiten/Anlegen/Abstimmung
 
 
-function pieceForm(?array $p, string $action): string {
+$allTagsCache = null;
+function pieceForm(?array $p, string $action, array $selectedTags = []): string {
+  global $allTagsCache;
+  if ($allTagsCache === null) $allTagsCache = sv_all_tags();
   $v = function(string $k) use ($p): string {
     return htmlspecialchars((string)($p[$k] ?? ''), ENT_QUOTES, 'UTF-8');
   };
@@ -37,8 +40,8 @@ function pieceForm(?array $p, string $action): string {
     </div>
     <label>Verlag<br><input name="publisher" value="<?=$v('publisher')?>" style="width:100%;margin-top:5px"></label>
     <label>Länge<br><input name="duration" value="<?=$v('duration')?>" placeholder="z.B. 6:30" style="width:100%;margin-top:5px"></label>
-    <label>Genre<br><input name="genre" value="<?=$v('genre')?>" placeholder="z.B. Konzertmarsch" style="width:100%;margin-top:5px"></label>
     <label>Grad (1.0–6.0)<br><input name="difficulty" type="number" step="0.1" min="1" max="6" value="<?=$v('difficulty')?>" style="width:100%;margin-top:5px"></label>
+    <div style="grid-column:1/-1"><?= sv_tag_widget($allTagsCache, $selectedTags) ?></div>
     <label>Eigentümer<br><input name="owner" value="<?=$v('owner')?>" placeholder="z.B. BPH, M.Müller" style="width:100%;margin-top:5px"></label>
     <label>Preis (€)<br><input name="shop_price" type="number" step="0.01" min="0" value="<?=$v('shop_price')?>" style="width:100%;margin-top:5px"></label>
     <label style="grid-column:1/-1">Link zum Händler / Notenversand<br><input name="shop_url" value="<?=$v('shop_url')?>" placeholder="https://…" style="width:100%;margin-top:5px"></label>
@@ -100,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $arranger  = trim($_POST['arranger'] ?? '');
     $publisher = trim($_POST['publisher'] ?? '');
     $duration  = sv_normalize_duration(trim($_POST['duration'] ?? ''));
-    $genre     = trim($_POST['genre']    ?? '');
+    $tags      = array_filter(array_map('trim', $_POST['tags'] ?? []));
     $diff      = $_POST['difficulty'] !== '' ? (float)str_replace(',','.',$_POST['difficulty']) : null;
     $owner     = trim($_POST['owner'] ?? '');
     $has_scan        = !empty($_POST['has_scan']) ? 1 : 0;
@@ -134,26 +137,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       try {
         if ($action === 'create') {
           $stmt = $pdo->prepare("INSERT INTO pieces
-            (title,youtube_url,composer,arranger,publisher,duration,genre,difficulty,owner,
+            (title,youtube_url,composer,arranger,publisher,duration,difficulty,owner,
              has_scan,has_score_scan,has_original_score,folder_number,binder,shop_url,shop_price,info,notes,querverweis)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
-          $stmt->execute([$title,$youtube_url,$composer,$arranger,$publisher,$duration,$genre,$diff,$owner,
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+          $stmt->execute([$title,$youtube_url,$composer,$arranger,$publisher,$duration,$diff,$owner,
             $has_scan,$has_score_scan,$has_orig_score,$folder,$binder,$shop_url,$shop_price,$info,$notes,$querverweis]);
+          $newPid = (int)$pdo->lastInsertId();
+          sv_sync_tags('piece', $newPid, $tags);
           sv_log($user['id'], 'piece_create', $title);
           sv_flash_set('success', 'Stück angelegt.');
         } else {
           $stmt = $pdo->prepare("UPDATE pieces SET
-            title=?,youtube_url=?,composer=?,arranger=?,publisher=?,duration=?,genre=?,difficulty=?,owner=?,
+            title=?,youtube_url=?,composer=?,arranger=?,publisher=?,duration=?,difficulty=?,owner=?,
             has_scan=?,has_score_scan=?,has_original_score=?,folder_number=?,binder=?,shop_url=?,shop_price=?,info=?,notes=?,querverweis=?
             WHERE id=?");
-          $stmt->execute([$title,$youtube_url,$composer,$arranger,$publisher,$duration,$genre,$diff,$owner,
+          $stmt->execute([$title,$youtube_url,$composer,$arranger,$publisher,$duration,$diff,$owner,
             $has_scan,$has_score_scan,$has_orig_score,$folder,$binder,$shop_url,$shop_price,$info,$notes,$querverweis,$pid]);
+          sv_sync_tags('piece', $pid, $tags);
           // Sync zu verknuepften Abstimmungstiteln
           $linkedS = $pdo->prepare("SELECT id FROM songs WHERE piece_id=?"); $linkedS->execute([$pid]);
           $linkedIds = array_column($linkedS->fetchAll(), 'id');
           foreach ($linkedIds as $songId) {
-            $pdo->prepare("UPDATE songs SET title=?,youtube_url=?,composer=?,arranger=?,publisher=?,duration=?,genre=?,difficulty=?,shop_url=?,shop_price=?,info=? WHERE id=?")
-              ->execute([$title,$youtube_url,$composer,$arranger,$publisher,$duration,$genre,$diff,$shop_url,$shop_price,$info,$songId]);
+            $pdo->prepare("UPDATE songs SET title=?,youtube_url=?,composer=?,arranger=?,publisher=?,duration=?,difficulty=?,shop_url=?,shop_price=?,info=? WHERE id=?")
+              ->execute([$title,$youtube_url,$composer,$arranger,$publisher,$duration,$diff,$shop_url,$shop_price,$info,$songId]);
+            sv_sync_tags('song', (int)$songId, $tags);
           }
           sv_log($user['id'], 'piece_update', "pid=$pid".($linkedIds?" sync=".implode(',',$linkedIds):''));
           sv_flash_set('success', 'Stueck aktualisiert.'.($linkedIds?' ('.count($linkedIds).' Abstimmungstitel synchronisiert)':''));
@@ -202,15 +209,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           sv_flash_set('error', 'Dieses Stück steht bereits aktiv zur Abstimmung.');
         } else {
           $stmt = $pdo->prepare("INSERT INTO songs
-            (title, youtube_url, is_active, piece_id, composer, arranger, publisher, duration, genre, difficulty, shop_url, shop_price, info)
-            VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            (title, youtube_url, is_active, piece_id, composer, arranger, publisher, duration, difficulty, shop_url, shop_price, info)
+            VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
           $stmt->execute([
             $p['title'], $p['youtube_url'] ?? '', $pid,
             $p['composer'], $p['arranger'], $p['publisher'],
-            $p['duration'], $p['genre'], $p['difficulty'],
+            $p['duration'], $p['difficulty'],
             $p['shop_url'], $p['shop_price'], $p['info'],
           ]);
           $newSongId = (int)$pdo->lastInsertId();
+          // Tags vom Piece auf den neuen Song kopieren
+          $pieceTags = sv_tags_for_piece($pid);
+          sv_sync_tags('song', $newSongId, $pieceTags);
           $oldVotes = $pdo->prepare("SELECT COUNT(DISTINCT v.user_id) AS cnt FROM votes v JOIN songs s ON s.id=v.song_id WHERE s.piece_id=? AND s.id!=?");
           $oldVotes->execute([$pid, $newSongId]);
           $oldVoteCount = (int)$oldVotes->fetchColumn();
@@ -262,7 +272,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $cur = $piece->fetch();
       if ($cur) {
         $fields = ['title','youtube_url','composer','arranger','publisher','duration',
-                   'genre','difficulty','owner','shop_url','shop_price','info','querverweis'];
+                   'difficulty','owner','shop_url','shop_price','info','querverweis'];
         $changes = [];
         foreach ($fields as $f) {
           $oldVal = trim((string)($cur[$f] ?? ''));
@@ -315,7 +325,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── Daten laden ───────────────────────────────────────────────────────────────
 $search  = trim($_GET['q']      ?? '');
-$sortBy  = in_array($_GET['sort'] ?? '', ['title','composer','arranger','genre','difficulty','duration','owner','scan','binder']) ? $_GET['sort'] : 'title';
+$sortBy  = in_array($_GET['sort'] ?? '', ['title','composer','arranger','tags','difficulty','duration','owner','scan','binder']) ? $_GET['sort'] : 'title';
 $sortDir = ($_GET['dir']  ?? '') === 'desc' ? 'DESC' : 'ASC';
 $perPage = 9999;
 $page    = max(1, (int)($_GET['page'] ?? 1));
@@ -327,7 +337,7 @@ if (!$isAdmin) {
   $conds[] = "deleted_at IS NULL";
 }
 if ($search !== '') {
-  $conds[] = "(title LIKE ? OR composer LIKE ? OR arranger LIKE ? OR genre LIKE ? OR owner LIKE ?)";
+  $conds[] = "(title LIKE ? OR composer LIKE ? OR arranger LIKE ? OR owner LIKE ? OR EXISTS (SELECT 1 FROM piece_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.piece_id=pieces.id AND t.name LIKE ?))";
   $params  = array_merge($params, ["%$search%","%$search%","%$search%","%$search%","%$search%"]);
 }
 
@@ -336,8 +346,8 @@ if ($sortBy === 'composer') {
   $orderBy = "composer IS NULL OR composer='', composer $sortDir, title ASC";
 } elseif ($sortBy === 'arranger') {
   $orderBy = "arranger IS NULL OR arranger='', arranger $sortDir, title ASC";
-} elseif ($sortBy === 'genre') {
-  $orderBy = "genre IS NULL OR genre='', genre $sortDir, title ASC";
+} elseif ($sortBy === 'tags') {
+  $orderBy = "(SELECT GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR ', ') FROM piece_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.piece_id=pieces.id) IS NULL, (SELECT GROUP_CONCAT(t.name ORDER BY t.name SEPARATOR ', ') FROM piece_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.piece_id=pieces.id) $sortDir, title ASC";
 } elseif ($sortBy === 'owner') {
   $orderBy = "owner IS NULL OR owner='', owner $sortDir, title ASC";
 } elseif ($sortBy === 'scan') {
@@ -365,6 +375,10 @@ $pages = max(1, (int)ceil($total / $perPage));
 $stmt = $pdo->prepare("SELECT * FROM pieces $where ORDER BY $orderBy LIMIT $perPage OFFSET $offset");
 $stmt->execute($params);
 $pieces = $stmt->fetchAll();
+
+// Tags vorladen
+$pieceIds = array_column($pieces, 'id');
+$tagsByPiece = sv_tags_for_pieces($pieceIds);
 
 $activeSongPieceIds = array_column(
   $pdo->query("SELECT piece_id FROM songs WHERE piece_id IS NOT NULL AND is_active=1 AND deleted_at IS NULL")->fetchAll(),
@@ -477,7 +491,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
           $stK = ($sortBy==='composer'?'color:var(--red)':'color:inherit').';cursor:pointer;user-select:none;display:block';
           $stA = ($sortBy==='arranger'?'color:var(--red)':'color:var(--muted)').';cursor:pointer;user-select:none;display:block;font-size:12px';
           echo '<th class="bib-col bib-col-composer bib-col-arranger" style="white-space:nowrap"><a href="?'.$qK.'" style="text-decoration:none;'.$stK.'">Komponist'.$icK.'</a><a href="?'.$qA.'" style="text-decoration:none;font-size:12px;'.$stA.'">Arrangeur'.$icA.'</a></th>';
-          echo sortTh('genre',      'Genre',          $sortBy,$sortDir,'bib-col bib-col-genre');
+          echo sortTh('tags',       'Genre',           $sortBy,$sortDir,'bib-col bib-col-genre');
           echo sortTh('difficulty', 'Grad',  $sortBy,$sortDir,'bib-col bib-col-difficulty');
           echo sortTh('duration',   'Länge',          $sortBy,$sortDir,'bib-col bib-col-duration');
           echo sortTh('owner',      'Eigentümer',     $sortBy,$sortDir,'bib-col bib-col-owner');
@@ -492,7 +506,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
         $pIsDeleted = !empty($p['deleted_at']);
         $rowClass = $pIsDeleted ? 'bib-row-deleted' : (!empty($p['loaned_to']) ? 'bib-row-loaned' : '');
       ?>
-        <tr data-search="<?=h(strtolower($p['title'].' '.($p['composer']??'').' '.($p['arranger']??'').' '.($p['genre']??'').' '.($p['owner']??'')))?>"<?php if($rowClass): ?> class="<?=$rowClass?>"<?php endif; ?>>
+        <tr data-search="<?=h(strtolower($p['title'].' '.($p['composer']??'').' '.($p['arranger']??'').' '.implode(' ', $tagsByPiece[(int)$p['id']] ?? []).' '.($p['owner']??'')))?>"<?php if($rowClass): ?> class="<?=$rowClass?>"<?php endif; ?>>
           <td style="min-width:180px"><strong style="cursor:pointer" onclick="openDetailById('<?=h($p['id'])?>')"><?=h($p['title'])?></strong><?php if(!empty($p['querverweis'])): ?> <span class="small" style="color:var(--muted);font-weight:400">/ <?=h($p['querverweis'])?></span><?php endif; ?>
             <?php if(!empty($p['publisher'])): ?><div class="small"><?=h($p['publisher'])?></div><?php endif; ?>
             <?php if(!empty($p['youtube_url'])): ?><div><a class="song-link" href="<?=h($p['youtube_url'])?>" target="_blank" rel="noopener">▶ YouTube öffnen</a></div><?php endif; ?>
@@ -519,7 +533,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
             <?=h($p['composer'] ?? '–')?>
             <?php if(!empty($p['arranger'])): ?><div style="color:var(--muted);font-size:12px">Arr. <?=h($p['arranger'])?></div><?php endif; ?>
           </td>
-          <td class="small bib-col bib-col-genre" style="white-space:nowrap"><?=h($p['genre'] ?? '–')?></td>
+          <td class="small bib-col bib-col-genre" style="white-space:nowrap"><?= sv_tag_badges($tagsByPiece[(int)$p['id']] ?? []) ?></td>
           <td class="bib-col bib-col-difficulty" style="white-space:nowrap"><?=diffPill($p['difficulty'])?></td>
           <td class="small bib-col bib-col-duration" style="white-space:nowrap"><?=h($p['duration'] ?? '–')?></td>
           <td class="small bib-col bib-col-owner" style="white-space:nowrap">
@@ -577,7 +591,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
               <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
             </div>
             <div class="sv-dialog__section">
-              <?= pieceForm($p, 'update') ?>
+              <?= pieceForm($p, 'update', $tagsByPiece[(int)$p['id']] ?? []) ?>
             </div>
           </div>
         </dialog>
@@ -667,7 +681,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
               <div class="small" style="background:#fff8e1;border:1px solid rgba(184,134,11,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:#b8860b">
                 Ändere die Felder, die du korrigieren möchtest. Dein Vorschlag wird zur Prüfung an die Notenverwaltung gesendet.
               </div>
-              <?= pieceForm($p, 'suggest') ?>
+              <?= pieceForm($p, 'suggest', $tagsByPiece[(int)$p['id']] ?? []) ?>
             </div>
           </div>
         </dialog>
@@ -726,7 +740,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
     <div data-id="<?=h($p['id'])?>" data-title="<?=h($p['title'])?>"
          data-composer="<?=h($p['composer']??'')?>" data-arranger="<?=h($p['arranger']??'')?>"
          data-publisher="<?=h($p['publisher']??'')?>" data-duration="<?=h($p['duration']??'')?>"
-         data-genre="<?=h($p['genre']??'')?>" data-difficulty="<?=h($p['difficulty']??'')?>"
+         data-tags="<?=h(implode(', ', $tagsByPiece[(int)$p['id']] ?? []))?>" data-difficulty="<?=h($p['difficulty']??'')?>"
          data-owner="<?=h($p['owner']??'')?>" data-youtube="<?=h($p['youtube_url']??'')?>"
          data-info="<?=h($p['info']??'')?>"
          data-scan="<?=$p['has_scan']?'1':'0'?>" data-scanscore="<?=$p['has_score_scan']?'1':'0'?>"
@@ -891,7 +905,7 @@ function showDetail(row) {
   var diff = d.dataset.difficulty;
   var diffHtml = '';
   if(diff){ var dv=parseFloat(diff); diffHtml='<span class="badge" style="'+diffStyle(dv)+'">'+dv.toFixed(1)+'</span>'; }
-  var fields=[['Komponist',d.dataset.composer],['Arrangeur',d.dataset.arranger],['Verlag',d.dataset.publisher],['Dauer',d.dataset.duration],['Genre',d.dataset.genre],['Eigentümer',d.dataset.owner],['Info',d.dataset.info]].filter(function(f){return f[1];});
+  var fields=[['Komponist',d.dataset.composer],['Arrangeur',d.dataset.arranger],['Verlag',d.dataset.publisher],['Dauer',d.dataset.duration],['Genre',d.dataset.tags],['Eigentümer',d.dataset.owner],['Info',d.dataset.info]].filter(function(f){return f[1];});
   var toggles=[];
   if(d.dataset.scan==='1') toggles.push('✓ Stimmen');
   if(d.dataset.scanscore==='1') toggles.push('✓ Partitur');
@@ -1090,5 +1104,80 @@ function bibFilter() {
     });
   });
 })();
+</script>
+<script>
+function svGenreAdd(sel) {
+  var name = sel.value; if (!name) return;
+  var wrap = sel.closest('.genre-widget');
+  var chips = wrap.querySelector('.genre-chips');
+  // Doppelt-Check
+  var existing = chips.querySelectorAll('input[type="hidden"]');
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].value.toLowerCase() === name.toLowerCase()) { sel.value = ''; return; }
+  }
+  _svAddChip(chips, name);
+  // Option disablen
+  sel.querySelector('option[value="'+CSS.escape(name)+'"]').disabled = true;
+  sel.value = '';
+}
+function svGenreRefresh(el) {
+  var wrap = el.closest('.genre-widget');
+  if (!wrap) return;
+  var sel = wrap.querySelector('.genre-dropdown');
+  var active = {};
+  wrap.querySelectorAll('.genre-chips input[type="hidden"]').forEach(function(h){ active[h.value] = true; });
+  sel.querySelectorAll('option').forEach(function(o){ if(o.value) o.disabled = !!active[o.value]; });
+}
+function svAddNewTag(btn) {
+  var wrap = btn.closest('.genre-widget');
+  var inp = wrap.querySelector('.tag-new-input');
+  var name = (inp.value || '').trim();
+  if (!name) return;
+  var chips = wrap.querySelector('.genre-chips');
+  // Prüfen ob schon als Chip vorhanden
+  var existing = chips.querySelectorAll('input[type="hidden"]');
+  for (var i = 0; i < existing.length; i++) {
+    if (existing[i].value.toLowerCase() === name.toLowerCase()) { inp.value = ''; return; }
+  }
+  _svAddChip(chips, name);
+  // Falls im Dropdown vorhanden, disablen
+  var sel = wrap.querySelector('.genre-dropdown');
+  var opt = sel.querySelector('option[value="'+CSS.escape(name)+'"]');
+  if (opt) opt.disabled = true;
+  inp.value = '';
+}
+function _svAddChip(container, name) {
+  var chip = document.createElement('span');
+  chip.className = 'genre-chip badge';
+  chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:12px';
+  var esc = name.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  chip.innerHTML = esc + '<input type="hidden" name="tags[]" value="'+esc+'">'
+    + '<span onclick="this.parentElement.remove();svGenreRefresh(this)" style="cursor:pointer;font-weight:700;line-height:1;opacity:.6">&times;</span>';
+  container.appendChild(chip);
+}
+function svDeleteTagMenu(btn) {
+  var wrap = btn.closest('.genre-widget');
+  var sel = wrap.querySelector('.genre-dropdown');
+  var opt = sel.options[sel.selectedIndex];
+  if (!sel.value || !opt) { alert('Erst ein Genre im Dropdown auswählen.'); return; }
+  var tagId = opt.getAttribute('data-tag-id');
+  var tagName = sel.value;
+  if (!tagId) { alert('Dieses Genre wurde noch nicht gespeichert.'); return; }
+  if (!confirm('Genre „' + tagName + '" global löschen?\n\nFunktioniert nur wenn es nirgends mehr vergeben ist.')) return;
+  var csrf = document.querySelector('input[name="csrf"]');
+  fetch('<?=h($base)?>/api/tag.php', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','X-CSRF-Token': csrf ? csrf.value : ''},
+    body: JSON.stringify({action:'delete', tag_id: parseInt(tagId)})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d.error) { alert(d.error); return; }
+    // Option aus allen Dropdowns entfernen + evtl. Chip entfernen
+    document.querySelectorAll('.genre-dropdown option[data-tag-id="'+tagId+'"]').forEach(function(o){ o.remove(); });
+    document.querySelectorAll('.genre-chips input[type="hidden"]').forEach(function(h){
+      if (h.value === tagName) h.parentElement.remove();
+    });
+    sel.value = '';
+  }).catch(function(e){ alert('Fehler: ' + e.message); });
+}
 </script>
 <?php sv_footer(); ?>

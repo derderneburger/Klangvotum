@@ -272,10 +272,14 @@ if ($selectedId) {
   $s->execute([$selectedId]);
   $selected = $s->fetch() ?: null;
   if ($selected) {
-    $sp = $pdo->prepare("SELECT cp.position, p.id, p.title, p.composer, p.arranger, p.duration, p.genre, p.difficulty, p.youtube_url, p.info, p.querverweis FROM concert_pieces cp JOIN pieces p ON p.id=cp.piece_id WHERE cp.concert_id=? ORDER BY cp.position ASC, p.title ASC");
+    $sp = $pdo->prepare("SELECT cp.position, p.id, p.title, p.composer, p.arranger, p.duration, p.difficulty, p.youtube_url, p.info, p.querverweis FROM concert_pieces cp JOIN pieces p ON p.id=cp.piece_id WHERE cp.concert_id=? ORDER BY cp.position ASC, p.title ASC");
     $sp->execute([$selectedId]);
     $selPieces = $sp->fetchAll();
   }
+}
+$tagsByPiece = [];
+if ($selPieces) {
+  $tagsByPiece = sv_tags_for_pieces(array_column($selPieces, 'id'));
 }
 
 // ── Export ─────────────────────────────────────────────────────────────────────
@@ -631,7 +635,7 @@ sv_header('Auftrittchronik', $user);
                     data-title="<?=h($p['title'])?>"
                     data-composer="<?=h($p['composer']??'')?>"
                     data-arranger="<?=h($p['arranger']??'')?>"
-                    data-genre="<?=h($p['genre']??'')?>"
+                    data-tags="<?=h(implode(', ', $tagsByPiece[(int)$p['id']] ?? []))?>"
                     data-duration="<?=h($p['duration']??'')?>"
                     data-difficulty="<?=h($p['difficulty']??'')?>"
                     data-youtube="<?=h($p['youtube_url']??'')?>"
@@ -864,7 +868,7 @@ function openPieceDetail(btn) {
   document.getElementById('pd-sub').textContent = sub.join(' · ');
   var info = document.getElementById('pd-info');
   info.innerHTML = '';
-  var fields = [['Genre', btn.dataset.genre], ['Länge', btn.dataset.duration], ['Grad', btn.dataset.difficulty ? parseFloat(btn.dataset.difficulty).toFixed(1) : '']];
+  var fields = [['Genre', btn.dataset.tags], ['Länge', btn.dataset.duration], ['Grad', btn.dataset.difficulty ? parseFloat(btn.dataset.difficulty).toFixed(1) : '']];
   fields.forEach(function(f) {
     if (!f[1]) return;
     var d = document.createElement('div');
