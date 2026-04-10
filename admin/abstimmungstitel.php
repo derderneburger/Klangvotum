@@ -943,14 +943,12 @@ function _svAddChip(container, name) {
     + '<span onclick="this.parentElement.remove();svGenreRefresh(this)" style="cursor:pointer;font-weight:700;line-height:1;opacity:.6">&times;</span>';
   container.appendChild(chip);
 }
-function svDeleteTagMenu(btn) {
+function svDeleteTagConfirm(btn) {
   var wrap = btn.closest('.genre-widget');
-  var sel = wrap.querySelector('.genre-dropdown');
-  var opt = sel.options[sel.selectedIndex];
-  if (!sel.value || !opt) { alert('Erst ein Genre im Dropdown auswählen.'); return; }
-  var tagId = opt.getAttribute('data-tag-id');
-  var tagName = sel.value;
-  if (!tagId) { alert('Dieses Genre wurde noch nicht gespeichert.'); return; }
+  var delSel = wrap.querySelector('.genre-delete-dropdown');
+  var tagId = delSel.value;
+  if (!tagId) { alert('Erst ein Genre zum Löschen auswählen.'); return; }
+  var tagName = delSel.options[delSel.selectedIndex].textContent;
   if (!confirm('Genre „' + tagName + '" global löschen?\n\nFunktioniert nur wenn es nirgends mehr vergeben ist.')) return;
   var csrf = document.querySelector('input[name="csrf"]');
   fetch('<?=h($base)?>/api/tag.php', {
@@ -960,10 +958,11 @@ function svDeleteTagMenu(btn) {
   }).then(function(r){ return r.json(); }).then(function(d){
     if (d.error) { alert(d.error); return; }
     document.querySelectorAll('.genre-dropdown option[data-tag-id="'+tagId+'"]').forEach(function(o){ o.remove(); });
+    document.querySelectorAll('.genre-delete-dropdown option[value="'+tagId+'"]').forEach(function(o){ o.remove(); });
     document.querySelectorAll('.genre-chips input[type="hidden"]').forEach(function(h){
       if (h.value === tagName) h.parentElement.remove();
     });
-    sel.value = '';
+    delSel.value = '';
   }).catch(function(e){ alert('Fehler: ' + e.message); });
 }
 </script>

@@ -603,8 +603,15 @@ function sv_tag_widget(array $allTags, array $selectedTags, string $fieldName = 
       </select>
       <input type="text" class="tag-new-input" placeholder="Neues Genre…" style="width:130px;padding:4px 8px;font-size:13px;border:1px solid var(--border);border-radius:6px">
       <button type="button" class="btn" style="padding:4px 10px;font-size:12px" onclick="svAddNewTag(this)">+</button>
-      <?php if ($canDelete): ?>
-      <button type="button" class="btn" style="padding:4px 10px;font-size:12px;color:var(--red)" onclick="svDeleteTagMenu(this)" title="Genre global löschen">🗑</button>
+      <?php if ($canDelete && $allTags): ?>
+      <span style="border-left:1px solid var(--border);height:24px;margin:0 2px"></span>
+      <select class="genre-delete-dropdown" style="width:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:6px;background:#fff;color:var(--red)">
+        <option value="">🗑 Löschen…</option>
+        <?php foreach ($allTags as $tag): ?>
+        <option value="<?=(int)$tag['id']?>"><?=htmlspecialchars($tag['name'], ENT_QUOTES, 'UTF-8')?></option>
+        <?php endforeach; ?>
+      </select>
+      <button type="button" class="btn" style="padding:4px 10px;font-size:12px;color:var(--red)" onclick="svDeleteTagConfirm(this)" title="Ausgewähltes Genre global löschen">🗑</button>
       <?php endif; ?>
     </div>
   </fieldset>
