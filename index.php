@@ -91,8 +91,12 @@ sv_header('Abstimmen', $user);
 </div>
 <?php endif; ?>
 
-<!-- Filter -->
+<!-- Suche & Filter -->
 <div class="card" style="margin-bottom:4px">
+  <div style="margin-bottom:8px">
+    <input type="text" id="voteSearch" placeholder="Titel, Komponist, Arrangeur suchen…" autocomplete="off"
+           style="width:100%;padding:8px 12px;font-size:14px;border:1px solid var(--border);border-radius:8px;background:#fff">
+  </div>
   <div class="filterbar">
     <strong>Filter:</strong>
     <button class="filterbtn active" data-filter="all">Alle</button>
@@ -110,7 +114,7 @@ sv_header('Abstimmen', $user);
   $vote = $song['my_vote'] ?? '';
   $cardClass = $vote === 'ja' ? 'voted-ja' : ($vote === 'nein' ? 'voted-nein' : ($vote === 'neutral' ? 'voted-neutral' : ''));
 ?>
-  <div class="song-card <?=h($cardClass)?>" data-song-id="<?=h($song['id'])?>" data-vote="<?=h($vote)?>">
+  <div class="song-card <?=h($cardClass)?>" data-song-id="<?=h($song['id'])?>" data-vote="<?=h($vote)?>" data-search="<?=h(strtolower($song['title'].' '.($song['composer']??'').' '.($song['arranger']??'').' '.implode(' ', $tagsBySongIdx[(int)$song['id']] ?? [])))?>">
     <div>
       <div class="song-title"><?=h($song['title'])?></div>
       <?php if(in_array('composer',$displayFields)||in_array('arranger',$displayFields)):
@@ -206,27 +210,35 @@ function updateProgress(p){
 
 /* ── Stats ──────────────────────────────────── */
 function updateStats(){
-  const s = {ja:0, nein:0, neutral:0, open:0};
+  const s = {ja:0, nein:0, neutral:0, open:0, visible:0};
   document.querySelectorAll('.song-card').forEach(c => {
     const v = c.dataset.vote || '';
     if(v === 'ja') s.ja++;
     else if(v === 'nein') s.nein++;
     else if(v === 'neutral') s.neutral++;
     else s.open++;
+    if(c.style.display !== 'none') s.visible++;
   });
   const el = document.getElementById('voteStats');
-  if(el) el.textContent = `Offen: ${s.open} | Ja: ${s.ja} | Nein: ${s.nein} | Neutral: ${s.neutral}`;
+  const total = s.ja + s.nein + s.neutral + s.open;
+  const suffix = searchTerm ? ` (${s.visible}/${total} sichtbar)` : '';
+  if(el) el.textContent = `Offen: ${s.open} | Ja: ${s.ja} | Nein: ${s.nein} | Neutral: ${s.neutral}${suffix}`;
 }
 
-/* ── Filter ─────────────────────────────────── */
+/* ── Filter + Suche ────────────────────────────── */
+let searchTerm = '';
 function applyFilter(f){
-  currentFilter = f;
-  document.querySelectorAll('.filterbtn').forEach(b => b.classList.toggle('active', b.dataset.filter === f));
+  if (f !== undefined) currentFilter = f;
+  document.querySelectorAll('.filterbtn').forEach(b => b.classList.toggle('active', b.dataset.filter === currentFilter));
+  const q = searchTerm.toLowerCase();
   document.querySelectorAll('.song-card').forEach(c => {
     const v = c.dataset.vote || '';
-    let show = f === 'all' ? true
-      : f === 'open' ? (v === '')
-      : (v === f);
+    let show = currentFilter === 'all' ? true
+      : currentFilter === 'open' ? (v === '')
+      : (v === currentFilter);
+    if (show && q) {
+      show = (c.dataset.search || '').indexOf(q) !== -1;
+    }
     c.style.display = show ? '' : 'none';
   });
 }
@@ -266,6 +278,11 @@ async function apiNote(songId, note){
 /* ── Bind events ────────────────────────────── */
 document.querySelectorAll('.filterbtn').forEach(b => {
   b.addEventListener('click', () => applyFilter(b.dataset.filter));
+});
+document.getElementById('voteSearch').addEventListener('input', function(){
+  searchTerm = this.value.trim();
+  applyFilter();
+  updateStats();
 });
 
 document.querySelectorAll('.song-card').forEach(card => {
