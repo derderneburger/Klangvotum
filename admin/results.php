@@ -31,6 +31,8 @@ $rows = $pdo->query("
 $ergSongIds = array_column($rows, 'id');
 $tagsBySongRes = sv_tags_for_songs($ergSongIds);
 
+$totalVoters = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE is_active = 1")->fetchColumn();
+
 $noteRows = $canSeeNotes ? $pdo->query("
   SELECT
     vn.song_id,
@@ -114,7 +116,7 @@ $base = sv_base_url();
   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
     <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Spalten</span>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-composer" onchange="toggleCol('composer',this.checked);toggleCol('arranger',this.checked)"> Komponist / Arrangeur</label>
-    <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-genre"      onchange="toggleCol('genre',this.checked)"> Tags</label>
+    <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-genre"      onchange="toggleCol('genre',this.checked)"> Genre</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-difficulty" onchange="toggleCol('difficulty',this.checked)"> Grad</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-duration"   onchange="toggleCol('duration',this.checked)"> Länge</label>
     <?php if($canSeeNotes): ?><label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="chk-notes"      onchange="toggleCol('notes',this.checked)" checked> Notizen</label><?php endif; ?>
@@ -141,6 +143,7 @@ $base = sv_base_url();
         <th class="col-difficulty" style="display:none;cursor:pointer;user-select:none" onclick="sortResults('difficulty')"><span class="sort-label" data-col="difficulty">Grad</span></th>
         <th class="col-duration" style="display:none;cursor:pointer;user-select:none" onclick="sortResults('duration')"><span class="sort-label" data-col="duration">Länge</span></th>
         <th style="text-align:center;cursor:pointer;user-select:none" onclick="sortResults('score')"><span class="sort-label sort-active" data-col="score">Score ↓</span></th>
+        <th style="text-align:center;white-space:nowrap;cursor:pointer;user-select:none" onclick="sortResults('voters')"><span class="sort-label" data-col="voters">Beteiligung</span></th>
         <?php if($canSeeNotes): ?><th class="col-notes">Notizen</th><?php endif; ?>
       </tr>
     </thead>
@@ -150,7 +153,7 @@ $base = sv_base_url();
         $rank++;
       ?>
         <?php $notesJson = htmlspecialchars(json_encode($notesBySong[(int)$r['id']] ?? []), ENT_QUOTES); ?>
-        <tr data-title="<?=h(mb_strtolower($r['title']))?>" data-composer="<?=h(mb_strtolower($r['composer']??''))?>" data-arranger="<?=h(mb_strtolower($r['arranger']??''))?>" data-genre="<?=h(mb_strtolower(implode(', ', $tagsBySongRes[(int)$r['id']] ?? [])))?>" data-difficulty="<?=h($r['difficulty']??'')?>" data-duration="<?=h($r['duration']??'')?>" data-ja="<?=h($r['ja_count'])?>" data-nein="<?=h($r['nein_count'])?>" data-neutral="<?=h($r['neutral_count'])?>" data-total="<?=h($r['total_votes'])?>" data-score="<?=h($score)?>" data-notes="<?=$notesJson?>">
+        <tr data-title="<?=h(mb_strtolower($r['title']))?>" data-composer="<?=h(mb_strtolower($r['composer']??''))?>" data-arranger="<?=h(mb_strtolower($r['arranger']??''))?>" data-genre="<?=h(mb_strtolower(implode(', ', $tagsBySongRes[(int)$r['id']] ?? [])))?>" data-difficulty="<?=h($r['difficulty']??'')?>" data-duration="<?=h($r['duration']??'')?>" data-ja="<?=h($r['ja_count'])?>" data-nein="<?=h($r['nein_count'])?>" data-neutral="<?=h($r['neutral_count'])?>" data-total="<?=h($r['total_votes'])?>" data-voters="<?=h($r['total_votes'])?>" data-score="<?=h($score)?>" data-notes="<?=$notesJson?>">
           <td style="min-width:180px">
             <div style="display:flex;align-items:baseline;gap:8px">
               <input type="checkbox" class="dur-check" data-dur="<?=h($r['duration']??'')?>" data-title="<?=h($r['title'])?>" style="flex-shrink:0;margin-top:2px;cursor:pointer" title="Zur Zeitberechnung hinzufügen">
@@ -202,6 +205,16 @@ $base = sv_base_url();
                 </div>
               </div>
             </div>
+          </td>
+          <?php
+            $voters = (int)$r['total_votes'];
+            $pct = $totalVoters > 0 ? $voters / $totalVoters : 0;
+            $vColor = $pct >= 1 ? 'var(--score)' : ($pct >= .5 ? 'var(--muted)' : 'var(--red)');
+            $vBg    = $pct >= 1 ? 'var(--score-light)' : ($pct >= .5 ? '#f5f2ee' : 'var(--red-soft)');
+            $vBord  = $pct >= 1 ? 'var(--score-mid)' : ($pct >= .5 ? '#ddd' : 'rgba(193,9,15,.2)');
+          ?>
+          <td style="text-align:center;white-space:nowrap">
+            <span style="display:inline-block;padding:3px 9px;border-radius:8px;font-size:12px;font-weight:700;background:<?=$vBg?>;color:<?=$vColor?>;border:1.5px solid <?=$vBord?>"><?=$voters?>/<?=$totalVoters?></span>
           </td>
           <?php if($canSeeNotes): ?>
           <td class="col-notes small" style="max-width:260px">
@@ -322,15 +335,15 @@ function sortResults(col) {
   } else {
     _sortCol = col;
     // Numerische Spalten default desc, Text-Spalten default asc
-    _sortDir = (col === 'score' || col === 'difficulty') ? 'desc' : 'asc';
+    _sortDir = (col === 'score' || col === 'difficulty' || col === 'voters') ? 'desc' : 'asc';
   }
   var tbody = document.querySelector('#resultsTable tbody');
   var rows = Array.from(tbody.querySelectorAll('tr'));
   rows.sort(function(a, b) {
     var va, vb;
-    if (col === 'score') {
-      va = parseInt(a.dataset.score || '0', 10);
-      vb = parseInt(b.dataset.score || '0', 10);
+    if (col === 'score' || col === 'voters') {
+      va = parseInt(a.dataset[col] || '0', 10);
+      vb = parseInt(b.dataset[col] || '0', 10);
     } else if (col === 'difficulty') {
       va = parseFloat(a.dataset.difficulty || '0');
       vb = parseFloat(b.dataset.difficulty || '0');

@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../lib/auth.php';
 require_once __DIR__ . '/../lib/layout.php';
 
-$admin = sv_require_admin();
+$admin = sv_require_leitung();
 $pdo   = sv_pdo();
 $base  = sv_base_url();
 
@@ -84,6 +84,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
       }
     }
+    // Zugabe-Check: max 1
+    if ($type === 'zugabe') {
+      $zt = $pdo->prepare("SELECT COUNT(*) FROM concert_plan_items WHERE plan_id=? AND item_type='zugabe'");
+      $zt->execute([$planId]);
+      if ((int)$zt->fetchColumn() > 0) {
+        header('Content-Type: application/json');
+        echo '{"ok":false,"error":"zugabe_exists"}';
+        exit;
+      }
+    }
 
     // Position bestimmen
     if ($afterPos !== null) {
@@ -114,11 +124,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($itemId) {
       $pdo->prepare("DELETE FROM concert_plan_items WHERE id = ? AND plan_id = ?")->execute([$itemId, $planId]);
       // Re-sequence
-      $rows = $pdo->prepare("SELECT id FROM concert_plan_items WHERE plan_id = ? ORDER BY position ASC");
+      $rows = $pdo->prepare("SELECT id FROM concert_plan_items WHERE plan_id = ? AND item_type != 'parked' ORDER BY position ASC");
       $rows->execute([$planId]);
       $upd = $pdo->prepare("UPDATE concert_plan_items SET position = ? WHERE id = ?");
       $pos = 1;
       foreach ($rows as $r) { $upd->execute([$pos++, $r['id']]); }
+      $pdo->prepare("UPDATE concert_plans SET updated_at = NOW() WHERE id = ?")->execute([$planId]);
+    }
+    header('Content-Type: application/json');
+    echo '{"ok":true}';
+    exit;
+
+  // ── Item parken (aus Plan in Ablage) ──
+  } elseif ($action === 'park_item') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $planId = (int)($_POST['plan_id'] ?? 0);
+    if ($itemId) {
+      $pdo->prepare("UPDATE concert_plan_items SET item_type = 'parked', position = 0 WHERE id = ? AND plan_id = ?")->execute([$itemId, $planId]);
+      // Re-sequence active items
+      $rows = $pdo->prepare("SELECT id FROM concert_plan_items WHERE plan_id = ? AND item_type != 'parked' ORDER BY position ASC");
+      $rows->execute([$planId]);
+      $upd = $pdo->prepare("UPDATE concert_plan_items SET position = ? WHERE id = ?");
+      $pos = 1;
+      foreach ($rows as $r) { $upd->execute([$pos++, $r['id']]); }
+      $pdo->prepare("UPDATE concert_plans SET updated_at = NOW() WHERE id = ?")->execute([$planId]);
+    }
+    header('Content-Type: application/json');
+    echo '{"ok":true}';
+    exit;
+
+  // ── Item aus Ablage zurueck in Plan ──
+  } elseif ($action === 'unpark_item') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $planId = (int)($_POST['plan_id'] ?? 0);
+    if ($itemId) {
+      $mx = $pdo->prepare("SELECT COALESCE(MAX(position),0) FROM concert_plan_items WHERE plan_id = ? AND item_type != 'parked'");
+      $mx->execute([$planId]);
+      $newPos = (int)$mx->fetchColumn() + 1;
+      $pdo->prepare("UPDATE concert_plan_items SET item_type = 'piece', position = ? WHERE id = ? AND plan_id = ?")->execute([$newPos, $itemId, $planId]);
+      $pdo->prepare("UPDATE concert_plans SET updated_at = NOW() WHERE id = ?")->execute([$planId]);
+    }
+    header('Content-Type: application/json');
+    echo '{"ok":true}';
+    exit;
+
+  // ── Geparktes Item endgueltig loeschen ──
+  } elseif ($action === 'remove_parked') {
+    $itemId = (int)($_POST['item_id'] ?? 0);
+    $planId = (int)($_POST['plan_id'] ?? 0);
+    if ($itemId) {
+      $pdo->prepare("DELETE FROM concert_plan_items WHERE id = ? AND plan_id = ? AND item_type = 'parked'")->execute([$itemId, $planId]);
       $pdo->prepare("UPDATE concert_plans SET updated_at = NOW() WHERE id = ?")->execute([$planId]);
     }
     header('Content-Type: application/json');
@@ -167,6 +222,7 @@ try {
 // Aktueller Plan + Items
 $currentPlan = null;
 $planItems   = [];
+$parkedItems = [];
 if ($planId) {
   $stmt = $pdo->prepare("SELECT * FROM concert_plans WHERE id = ?");
   $stmt->execute([$planId]);
@@ -177,15 +233,33 @@ if ($planId) {
              CASE WHEN cpi.source='song'  THEN s.title    ELSE p.title    END AS piece_title,
              CASE WHEN cpi.source='song'  THEN s.composer ELSE p.composer END AS piece_composer,
              CASE WHEN cpi.source='song'  THEN s.arranger ELSE p.arranger END AS piece_arranger,
-             CASE WHEN cpi.source='song'  THEN s.duration ELSE p.duration END AS piece_duration
+             CASE WHEN cpi.source='song'  THEN s.duration   ELSE p.duration   END AS piece_duration,
+             CASE WHEN cpi.source='song'  THEN s.difficulty ELSE p.difficulty END AS piece_difficulty
       FROM concert_plan_items cpi
       LEFT JOIN songs  s ON cpi.source='song'  AND cpi.piece_id = s.id
       LEFT JOIN pieces p ON cpi.source='piece' AND cpi.piece_id = p.id
-      WHERE cpi.plan_id = ?
+      WHERE cpi.plan_id = ? AND cpi.item_type != 'parked'
       ORDER BY cpi.position ASC
     ");
     $stmt->execute([$planId]);
     $planItems = $stmt->fetchAll();
+
+    // Geparkte Items laden
+    $pStmt = $pdo->prepare("
+      SELECT cpi.*,
+             CASE WHEN cpi.source='song'  THEN s.title    ELSE p.title    END AS piece_title,
+             CASE WHEN cpi.source='song'  THEN s.composer ELSE p.composer END AS piece_composer,
+             CASE WHEN cpi.source='song'  THEN s.arranger ELSE p.arranger END AS piece_arranger,
+             CASE WHEN cpi.source='song'  THEN s.duration   ELSE p.duration   END AS piece_duration,
+             CASE WHEN cpi.source='song'  THEN s.difficulty ELSE p.difficulty END AS piece_difficulty
+      FROM concert_plan_items cpi
+      LEFT JOIN songs  s ON cpi.source='song'  AND cpi.piece_id = s.id
+      LEFT JOIN pieces p ON cpi.source='piece' AND cpi.piece_id = p.id
+      WHERE cpi.plan_id = ? AND cpi.item_type = 'parked'
+      ORDER BY cpi.id ASC
+    ");
+    $pStmt->execute([$planId]);
+    $parkedItems = $pStmt->fetchAll();
   } else {
     $planId = 0;
   }
@@ -200,19 +274,25 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
   $logoSrc  = $logoData ? 'data:image/svg+xml;base64,' . $logoData : '';
 
   // Zeiten berechnen
-  $firstSec = 0; $secondSec = 0; $pieceCount = 0; $inSecond = false;
+  $firstSec = 0; $secondSec = 0; $zugabeSec = 0; $pieceCount = 0; $inSecond = false; $inZugabe = false;
   foreach ($planItems as $it) {
     if ($it['item_type'] === 'halftime') { $inSecond = true; continue; }
+    if ($it['item_type'] === 'zugabe')   { $inZugabe = true;  continue; }
     $dur = $it['item_type'] === 'block' ? ($it['duration_override'] ?? '') : ($it['piece_duration'] ?? '');
     $sec = 0;
     if (preg_match("/^(\d+)[:'](\\d{1,2})/", $dur, $dm)) $sec = (int)$dm[1]*60 + (int)$dm[2];
     elseif (preg_match('/^(\d+)$/', $dur, $dm)) $sec = (int)$dm[1]*60;
-    if ($inSecond) $secondSec += $sec; else $firstSec += $sec;
-    if ($it['item_type'] === 'piece') $pieceCount++;
+    if ($inZugabe)       $zugabeSec += $sec;
+    elseif ($inSecond)   $secondSec += $sec;
+    else                 $firstSec  += $sec;
+    if ($it['item_type'] === 'piece' && !$inZugabe) $pieceCount++;
   }
   $totalSec = $firstSec + $secondSec;
-  $hasHalftime = false;
-  foreach ($planItems as $it) { if ($it['item_type'] === 'halftime') { $hasHalftime = true; break; } }
+  $hasHalftime = false; $hasZugabePrint = false;
+  foreach ($planItems as $it) {
+    if ($it['item_type'] === 'halftime') $hasHalftime     = true;
+    if ($it['item_type'] === 'zugabe')   $hasZugabePrint  = true;
+  }
 
   $fmtDur = function(int $s): string { return floor($s/60) . ':' . str_pad($s%60, 2, '0', STR_PAD_LEFT); };
 
@@ -288,6 +368,8 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
     <?php $nr = 1; foreach ($planItems as $it): ?>
       <?php if ($it['item_type'] === 'halftime'): ?>
         <tr class="halftime-row"><td colspan="4">Halbzeit</td></tr>
+      <?php elseif ($it['item_type'] === 'zugabe'): ?>
+        <tr class="halftime-row" style="background:#fff7ed;border-top:2px solid #d97706;border-bottom:2px solid #d97706"><td colspan="4" style="color:#b45309">Zugaben</td></tr>
       <?php elseif ($it['item_type'] === 'block'): ?>
         <tr class="block-row">
           <td class="nr"><?=$nr++?></td>
@@ -317,6 +399,9 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
         <div class="time-item"><span class="time-label">2. Hälfte</span><span class="time-val"><?=$fmtDur($secondSec)?></span></div>
       <?php endif; ?>
       <div class="time-item"><span class="time-label">Gesamt</span><span class="time-val"><strong><?=$fmtDur($totalSec)?></strong></span></div>
+      <?php if ($hasZugabePrint): ?>
+        <div class="time-item"><span class="time-label" style="color:#b45309">Zugaben</span><span class="time-val" style="color:#b45309"><?=$fmtDur($zugabeSec)?></span></div>
+      <?php endif; ?>
       <div class="time-item"><span class="time-label">Stücke</span><span class="time-val"><?=$pieceCount?></span></div>
     </div>
   </div>
@@ -357,16 +442,25 @@ $planerPieceIds = array_column($pieces, 'id');
 $planerSongTags = sv_tags_for_songs($planerSongIds);
 $planerPieceTags = sv_tags_for_pieces($planerPieceIds);
 
-// Set der bereits im Plan genutzten Stuecke
+// Set der bereits im Plan genutzten Stuecke (inkl. geparkte)
 $usedKeys = [];
 foreach ($planItems as $it) {
   if ($it['item_type'] === 'piece' && $it['piece_id'] && $it['source']) {
     $usedKeys[$it['source'] . ':' . $it['piece_id']] = true;
   }
 }
+foreach ($parkedItems as $it) {
+  if ($it['piece_id'] && $it['source']) {
+    $usedKeys[$it['source'] . ':' . $it['piece_id']] = true;
+  }
+}
 
 $hasHalftime = false;
-foreach ($planItems as $it) { if ($it['item_type'] === 'halftime') { $hasHalftime = true; break; } }
+$hasZugabe   = false;
+foreach ($planItems as $it) {
+  if ($it['item_type'] === 'halftime') $hasHalftime = true;
+  if ($it['item_type'] === 'zugabe')   $hasZugabe   = true;
+}
 
 $csrf = sv_csrf_token();
 
@@ -427,8 +521,9 @@ sv_header('Konzertplaner', $admin);
         <thead><tr>
           <th style="width:36px"></th>
           <th>Titel</th>
-          <th style="width:70px;text-align:center">Score</th>
-          <th style="white-space:nowrap">Dauer</th>
+          <th style="width:60px;text-align:center;cursor:pointer;user-select:none;white-space:nowrap" onclick="sortPlanerTable('songTable','difficulty')"><span class="planer-sort-lbl" data-col="difficulty">Grad</span></th>
+          <th style="width:70px;text-align:center;cursor:pointer;user-select:none" onclick="sortPlanerTable('songTable','score')"><span class="planer-sort-lbl" data-col="score">Score</span></th>
+          <th style="white-space:nowrap;cursor:pointer;user-select:none" onclick="sortPlanerTable('songTable','dursec')"><span class="planer-sort-lbl" data-col="dursec">Dauer</span></th>
         </tr></thead>
         <tbody>
         <?php foreach ($songs as $s):
@@ -437,13 +532,21 @@ sv_header('Konzertplaner', $admin);
           $scBg    = $score > 0 ? 'var(--score-light)' : ($score < 0 ? 'var(--red-soft)' : '#f5f2ee');
           $scBorder= $score > 0 ? 'var(--score-mid)' : ($score < 0 ? 'rgba(193,9,15,.3)' : '#ddd');
           $used = isset($usedKeys['song:' . $s['id']]);
+          $durSec = 0;
+          if (!empty($s['duration'])) {
+            if (preg_match("/^(\d+)[:'](\\d{1,2})/", $s['duration'], $dm)) $durSec = (int)$dm[1]*60+(int)$dm[2];
+            elseif (preg_match('/^(\d+)$/', $s['duration'], $dm)) $durSec = (int)$dm[1]*60;
+          }
         ?>
           <tr data-search="<?=h(strtolower($s['title'].' '.($s['composer']??'').' '.($s['arranger']??'').' '.implode(' ', $planerSongTags[(int)$s['id']] ?? [])))?>"
               data-source="song" data-piece-id="<?=$s['id']?>"
               data-title="<?=h($s['title'])?>"
               data-composer="<?=h($s['composer'] ?? '')?>"
               data-arranger="<?=h($s['arranger'] ?? '')?>"
-              data-duration="<?=h($s['duration'] ?? '')?>">
+              data-duration="<?=h($s['duration'] ?? '')?>"
+              data-difficulty="<?=h($s['difficulty'] ?? '')?>"
+              data-dursec="<?=$durSec?>"
+              data-score="<?=$score?>">
             <td style="text-align:center">
               <button class="btn add-piece-btn" style="padding:2px 8px;font-size:16px;line-height:1;<?= $used ? 'opacity:.3;pointer-events:none' : '' ?>"
                       onclick="addPiece('song',<?=$s['id']?>,this)" <?= $used ? 'disabled' : '' ?>>+</button>
@@ -454,6 +557,7 @@ sv_header('Konzertplaner', $admin);
                 <div class="small" style="color:var(--muted)"><?=h($s['composer'] ?? '')?><?php if ($s['arranger']): ?> · Arr. <?=h($s['arranger'])?><?php endif; ?></div>
               <?php endif; ?>
             </td>
+            <td style="text-align:center"><?=sv_diff_pill($s['difficulty'])?></td>
             <td style="text-align:center">
               <span style="display:inline-block;background:<?=$scBg?>;color:<?=$scColor?>;border:1px solid <?=$scBorder?>;border-radius:8px;padding:2px 8px;font-weight:700;font-size:13px"><?=($score>0?'+':'').h($score)?></span>
             </td>
@@ -474,18 +578,26 @@ sv_header('Konzertplaner', $admin);
         <thead><tr>
           <th style="width:36px"></th>
           <th>Titel</th>
-          <th style="white-space:nowrap">Dauer</th>
+          <th style="width:60px;text-align:center;cursor:pointer;user-select:none;white-space:nowrap" onclick="sortPlanerTable('pieceTable','difficulty')"><span class="planer-sort-lbl" data-col="difficulty">Grad</span></th>
+          <th style="white-space:nowrap;cursor:pointer;user-select:none" onclick="sortPlanerTable('pieceTable','dursec')"><span class="planer-sort-lbl" data-col="dursec">Dauer</span></th>
         </tr></thead>
         <tbody>
         <?php foreach ($pieces as $p):
           $used = isset($usedKeys['piece:' . $p['id']]);
+          $durSecP = 0;
+          if (!empty($p['duration'])) {
+            if (preg_match("/^(\d+)[:'](\\d{1,2})/", $p['duration'], $dm)) $durSecP = (int)$dm[1]*60+(int)$dm[2];
+            elseif (preg_match('/^(\d+)$/', $p['duration'], $dm)) $durSecP = (int)$dm[1]*60;
+          }
         ?>
           <tr data-search="<?=h(strtolower($p['title'].' '.($p['composer']??'').' '.($p['arranger']??'').' '.implode(' ', $planerPieceTags[(int)$p['id']] ?? [])))?>"
               data-source="piece" data-piece-id="<?=$p['id']?>"
               data-title="<?=h($p['title'])?>"
               data-composer="<?=h($p['composer'] ?? '')?>"
               data-arranger="<?=h($p['arranger'] ?? '')?>"
-              data-duration="<?=h($p['duration'] ?? '')?>">
+              data-duration="<?=h($p['duration'] ?? '')?>"
+              data-difficulty="<?=h($p['difficulty'] ?? '')?>"
+              data-dursec="<?=$durSecP?>">
             <td style="text-align:center">
               <button class="btn add-piece-btn" style="padding:2px 8px;font-size:16px;line-height:1;<?= $used ? 'opacity:.3;pointer-events:none' : '' ?>"
                       onclick="addPiece('piece',<?=$p['id']?>,this)" <?= $used ? 'disabled' : '' ?>>+</button>
@@ -496,6 +608,7 @@ sv_header('Konzertplaner', $admin);
                 <div class="small" style="color:var(--muted)"><?=h($p['composer'] ?? '')?><?php if ($p['arranger']): ?> · Arr. <?=h($p['arranger'])?><?php endif; ?></div>
               <?php endif; ?>
             </td>
+            <td style="text-align:center"><?=sv_diff_pill($p['difficulty'])?></td>
             <td class="small" style="white-space:nowrap"><?=h($p['duration'] ?? '–')?></td>
           </tr>
         <?php endforeach; ?>
@@ -527,6 +640,12 @@ sv_header('Konzertplaner', $admin);
               <div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:var(--muted)">── Halbzeit ──</div>
               <button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(<?=$it['id']?>)">×</button>
             </div>
+          <?php elseif ($it['item_type'] === 'zugabe'): ?>
+            <div class="plan-item plan-zugabe" data-item-id="<?=$it['id']?>" data-type="zugabe" data-duration="0" draggable="true">
+              <span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>
+              <div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:#b45309">── Zugaben ──</div>
+              <button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(<?=$it['id']?>)">×</button>
+            </div>
           <?php elseif ($it['item_type'] === 'block'): ?>
             <div class="plan-item plan-block" data-item-id="<?=$it['id']?>" data-type="block" data-duration="<?=h($it['duration_override'] ?? '')?>" draggable="true">
               <span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>
@@ -539,7 +658,7 @@ sv_header('Konzertplaner', $admin);
               <button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(<?=$it['id']?>)">×</button>
             </div>
           <?php else: ?>
-            <div class="plan-item" data-item-id="<?=$it['id']?>" data-type="piece" data-duration="<?=h($it['piece_duration'] ?? '')?>" data-source="<?=h($it['source'] ?? '')?>" data-piece-id="<?=$it['piece_id'] ?? ''?>" draggable="true">
+            <div class="plan-item" data-item-id="<?=$it['id']?>" data-type="piece" data-duration="<?=h($it['piece_duration'] ?? '')?>" data-source="<?=h($it['source'] ?? '')?>" data-piece-id="<?=$it['piece_id'] ?? ''?>" data-difficulty="<?=h($it['piece_difficulty'] ?? '')?>" draggable="true">
               <span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>
               <span class="plan-nr"></span>
               <div style="flex:1">
@@ -548,6 +667,7 @@ sv_header('Konzertplaner', $admin);
                   <div class="small" style="color:var(--muted)"><?=h($it['piece_composer'] ?? '')?><?php if ($it['piece_arranger']): ?> · Arr. <?=h($it['piece_arranger'])?><?php endif; ?></div>
                 <?php endif; ?>
               </div>
+              <?=sv_diff_pill($it['piece_difficulty'])?>
               <span class="small" style="white-space:nowrap;margin:0 8px"><?=h($it['piece_duration'] ?? '–')?></span>
               <button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(<?=$it['id']?>)">×</button>
             </div>
@@ -559,6 +679,30 @@ sv_header('Konzertplaner', $admin);
       <div style="display:flex;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
         <button class="btn" style="font-size:12px" onclick="addBlockDialog()">+ Block</button>
         <button class="btn" style="font-size:12px" id="btn-halftime" onclick="addHalftime()" <?= $hasHalftime ? 'disabled style="font-size:12px;opacity:.3;pointer-events:none"' : '' ?>>+ Halbzeit</button>
+        <button class="btn" style="font-size:12px" id="btn-zugabe" onclick="addZugabe()" <?= $hasZugabe ? 'disabled style="font-size:12px;opacity:.3;pointer-events:none"' : '' ?>>+ Zugaben</button>
+      </div>
+
+      <!-- Ablage -->
+      <div id="parking-area" style="margin-top:12px;<?= $parkedItems ? '' : 'display:none' ?>">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">📋 Ablage <span id="parking-count" class="small" style="font-weight:400">(<?=count($parkedItems)?>)</span></div>
+          <button class="btn" style="font-size:11px;padding:2px 8px;color:var(--red)" onclick="clearParking()" title="Ablage leeren">Leeren</button>
+        </div>
+        <div id="parking-list" style="border:1.5px dashed var(--border);border-radius:8px;background:#faf8f5;min-height:36px">
+          <?php foreach ($parkedItems as $pk): ?>
+            <div class="parking-item" data-item-id="<?=$pk['id']?>" data-source="<?=h($pk['source'] ?? '')?>" data-piece-id="<?=$pk['piece_id'] ?? ''?>" data-duration="<?=h($pk['piece_duration'] ?? '')?>">
+              <button class="btn" style="padding:2px 8px;font-size:16px;line-height:1;flex-shrink:0" onclick="reAddFromParking(this)" title="Zurück in den Plan">+</button>
+              <div style="flex:1;min-width:0">
+                <strong><?=h($pk['piece_title'] ?? '–')?></strong>
+                <?php if ($pk['piece_composer'] || $pk['piece_arranger']): ?>
+                  <div class="small" style="color:var(--muted)"><?=h($pk['piece_composer'] ?? '')?><?php if ($pk['piece_arranger']): ?> · Arr. <?=h($pk['piece_arranger'])?><?php endif; ?></div>
+                <?php endif; ?>
+              </div>
+              <span class="small" style="white-space:nowrap;margin:0 4px;flex-shrink:0"><?=h($pk['piece_duration'] ?? '–')?></span>
+              <button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red);flex-shrink:0" onclick="removeFromParking(this)" title="Aus Ablage entfernen">×</button>
+            </div>
+          <?php endforeach; ?>
+        </div>
       </div>
 
       <!-- Zeitsummen -->
@@ -575,6 +719,10 @@ sv_header('Konzertplaner', $admin);
           <div>
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Gesamt</div>
             <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;color:var(--green)" id="time-total">0:00</div>
+          </div>
+          <div id="time-zugabe-wrap" style="<?= $hasZugabe ? '' : 'display:none' ?>">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#b45309">Zugaben</div>
+            <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;color:#b45309" id="time-zugabe">0:00</div>
           </div>
           <div>
             <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Stücke</div>
@@ -686,6 +834,7 @@ sv_header('Konzertplaner', $admin);
   .plan-item.dragging { opacity: .35; }
   .plan-item.drag-over { background: var(--green-light); border-top: 2px solid var(--green); }
   .plan-halftime { background: #f5f2ee; border: 1px dashed var(--border); border-radius: 6px; margin: 4px 0; }
+  .plan-zugabe   { background: #fff7ed; border: 1px dashed #f0a040; border-radius: 6px; margin: 4px 0; }
   .plan-block { background: #faf8f5; }
   .plan-nr {
     display: inline-flex; align-items: center; justify-content: center;
@@ -693,6 +842,16 @@ sv_header('Konzertplaner', $admin);
     background: var(--green-light); color: var(--green); border: 1px solid var(--green-mid);
     font-size: 11px; font-weight: 700; flex-shrink: 0;
   }
+  .parking-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    background: transparent;
+    font-size: 13px;
+  }
+  .parking-item:last-child { border-bottom: none; }
   @media (max-width: 900px) {
     #planer-layout { flex-direction: column !important; }
   }
@@ -752,7 +911,8 @@ function fmtDur(sec) {
 // ── Zeitsummen ───────────────────────────────────────────────────────────────
 function recalcTimes() {
   var items = document.querySelectorAll('#plan-list .plan-item');
-  var first = 0, second = 0, count = 0, hasHalf = false, inSecond = false;
+  var first = 0, second = 0, zugabe = 0, count = 0;
+  var hasHalf = false, hasZugabe = false, inSecond = false, inZugabe = false;
   var nr = 1;
   items.forEach(function(el) {
     var nrEl = el.querySelector('.plan-nr');
@@ -761,17 +921,27 @@ function recalcTimes() {
       if (nrEl) nrEl.style.display = 'none';
       return;
     }
+    if (el.dataset.type === 'zugabe') {
+      hasZugabe = true; inZugabe = true;
+      if (nrEl) nrEl.style.display = 'none';
+      return;
+    }
     if (nrEl) { nrEl.style.display = ''; nrEl.textContent = nr++; }
     var sec = durParseSec(el.dataset.duration);
-    if (inSecond) second += sec; else first += sec;
-    if (el.dataset.type === 'piece') count++;
+    if (inZugabe)       zugabe += sec;
+    else if (inSecond)  second += sec;
+    else                first  += sec;
+    if (el.dataset.type === 'piece' && !inZugabe) count++;
   });
-  document.getElementById('time-first').textContent = fmtDur(first);
+  document.getElementById('time-first').textContent  = fmtDur(first);
   document.getElementById('time-second').textContent = fmtDur(second);
-  document.getElementById('time-total').textContent = fmtDur(first + second);
-  document.getElementById('time-count').textContent = count;
-  document.getElementById('time-first-wrap').style.display = hasHalf ? '' : 'none';
-  document.getElementById('time-second-wrap').style.display = hasHalf ? '' : 'none';
+  document.getElementById('time-total').textContent  = fmtDur(first + second);
+  document.getElementById('time-count').textContent  = count;
+  document.getElementById('time-first-wrap').style.display  = hasHalf   ? '' : 'none';
+  document.getElementById('time-second-wrap').style.display = hasHalf   ? '' : 'none';
+  document.getElementById('time-zugabe-wrap').style.display = hasZugabe ? '' : 'none';
+  var zugEl = document.getElementById('time-zugabe');
+  if (zugEl) zugEl.textContent = fmtDur(zugabe);
 
   // Empty state
   var emptyEl = document.getElementById('plan-empty');
@@ -779,11 +949,31 @@ function recalcTimes() {
 
   // Halftime button
   var htBtn = document.getElementById('btn-halftime');
-  if (htBtn) {
-    htBtn.disabled = hasHalf;
-    htBtn.style.opacity = hasHalf ? '.3' : '';
-    htBtn.style.pointerEvents = hasHalf ? 'none' : '';
-  }
+  if (htBtn) { htBtn.disabled = hasHalf; htBtn.style.opacity = hasHalf ? '.3' : ''; htBtn.style.pointerEvents = hasHalf ? 'none' : ''; }
+  // Zugabe button
+  var ztBtn = document.getElementById('btn-zugabe');
+  if (ztBtn) { ztBtn.disabled = hasZugabe; ztBtn.style.opacity = hasZugabe ? '.3' : ''; ztBtn.style.pointerEvents = hasZugabe ? 'none' : ''; }
+}
+
+// ── Schwierigkeitsgrad-Badge (JS) ────────────────────────────────────────────
+function diffBadge(d) {
+  if (!d || d === '') return '';
+  var v = parseFloat(d);
+  if (isNaN(v)) return '';
+  // Farbschema analog zu sv_diff_pill()
+  var style;
+  if      (v <= 1.0) style = 'background:#f0f0f0;color:#666;border-color:#ccc';
+  else if (v <= 1.5) style = 'background:#e8f5e0;color:#5a7a1a;border-color:#b8d88a';
+  else if (v <= 2.0) style = 'background:#dff0d0;color:#4a6a10;border-color:#a0c870';
+  else if (v <= 2.5) style = 'background:#d0eac0;color:#3a5e08;border-color:#88b858';
+  else if (v <= 3.0) style = 'background:#c4e4b0;color:#2e5205;border-color:#70a840';
+  else if (v <= 3.5) style = 'background:#fef9c0;color:#7a6000;border-color:#e0c840';
+  else if (v <= 4.0) style = 'background:#fef0a0;color:#8a5000;border-color:#d8a820';
+  else if (v <= 4.5) style = 'background:#fde8c0;color:#904000;border-color:#d08820';
+  else if (v <= 5.0) style = 'background:#fdd0a0;color:#982800;border-color:#c86820';
+  else if (v <= 5.5) style = 'background:#fcc0b0;color:#9a1800;border-color:#c04830';
+  else               style = 'background:#fbb0b0;color:#9a0020;border-color:#b83030';
+  return '<span class="badge" style="' + style + ';font-size:10px;padding:1px 5px">' + v.toFixed(1) + '</span>';
 }
 
 // ── Stueck hinzufuegen ───────────────────────────────────────────────────────
@@ -792,10 +982,11 @@ function addPiece(source, pieceId, btn) {
   if (usedKeys[key]) return;
 
   var tr = btn.closest('tr');
-  var title    = tr.dataset.title;
-  var composer = tr.dataset.composer;
-  var arranger = tr.dataset.arranger;
-  var duration = tr.dataset.duration;
+  var title      = tr.dataset.title;
+  var composer   = tr.dataset.composer;
+  var arranger   = tr.dataset.arranger;
+  var duration   = tr.dataset.duration;
+  var difficulty = tr.dataset.difficulty;
 
   planPost('add_item', {
     item_type: 'piece',
@@ -831,6 +1022,7 @@ function addPiece(source, pieceId, btn) {
       '<span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>' +
       '<span class="plan-nr"></span>' +
       '<div style="flex:1"><strong>' + escHtml(title) + '</strong>' + composerHtml + '</div>' +
+      diffBadge(difficulty) +
       '<span class="small" style="white-space:nowrap;margin:0 8px">' + escHtml(duration || '–') + '</span>' +
       '<button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(' + data.item_id + ')">×</button>';
 
@@ -914,6 +1106,50 @@ function submitBlock(e) {
   }
 }
 
+// ── Tabellen-Sortierung ──────────────────────────────────────────────────────
+var _planerSort = {};
+function sortPlanerTable(tableId, col) {
+  var prev = _planerSort[tableId] || {};
+  var numericDesc = ['difficulty', 'dursec', 'score'];
+  var defaultDir = numericDesc.indexOf(col) >= 0 ? 'desc' : 'asc';
+  var dir;
+  if (prev.col === col) {
+    dir = prev.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    dir = defaultDir;
+  }
+  _planerSort[tableId] = { col: col, dir: dir };
+
+  var table = document.getElementById(tableId);
+  if (!table) return;
+  var tbody = table.querySelector('tbody');
+  var rows  = Array.from(tbody.querySelectorAll('tr'));
+
+  rows.sort(function(a, b) {
+    var va, vb;
+    if (col === 'difficulty') {
+      va = parseFloat(a.dataset.difficulty || '0') || 0;
+      vb = parseFloat(b.dataset.difficulty || '0') || 0;
+    } else if (col === 'dursec' || col === 'score') {
+      va = parseInt(a.dataset[col] || '0', 10);
+      vb = parseInt(b.dataset[col] || '0', 10);
+    } else {
+      va = (a.dataset[col] || '').toLowerCase();
+      vb = (b.dataset[col] || '').toLowerCase();
+      var cmp = va.localeCompare(vb, 'de');
+      return dir === 'asc' ? cmp : -cmp;
+    }
+    return dir === 'asc' ? va - vb : vb - va;
+  });
+  rows.forEach(function(r) { tbody.appendChild(r); });
+
+  // Pfeil-Labels aktualisieren
+  table.querySelectorAll('.planer-sort-lbl').forEach(function(el) {
+    var base = el.textContent.replace(/ [↑↓]$/, '');
+    el.textContent = (el.dataset.col === col) ? base + (dir === 'asc' ? ' ↑' : ' ↓') : base;
+  });
+}
+
 function escAttr(s) {
   return (s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 }
@@ -943,26 +1179,189 @@ function addHalftime() {
   });
 }
 
-// ── Item entfernen ───────────────────────────────────────────────────────────
-function removeItem(itemId) {
-  planPost('remove_item', { item_id: itemId }, function(data) {
-    if (!data.ok) return;
-    var el = document.querySelector('.plan-item[data-item-id="' + itemId + '"]');
-    if (el) {
-      // Quell-Button wieder aktivieren
-      if (el.dataset.type === 'piece' && el.dataset.source && el.dataset.pieceId) {
-        var key = el.dataset.source + ':' + el.dataset.pieceId;
-        delete usedKeys[key];
-        var rows = document.querySelectorAll('tr[data-source="' + el.dataset.source + '"][data-piece-id="' + el.dataset.pieceId + '"]');
-        rows.forEach(function(r) {
-          var btn = r.querySelector('.add-piece-btn');
-          if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.style.pointerEvents = ''; }
-        });
-      }
-      el.remove();
+function addZugabe() {
+  planPost('add_item', { item_type: 'zugabe' }, function(data) {
+    if (!data.ok) {
+      if (data.error === 'zugabe_exists') alert('Es gibt bereits einen Zugaben-Block in diesem Plan.');
+      return;
     }
+    var emptyEl = document.getElementById('plan-empty');
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    var el = document.createElement('div');
+    el.className = 'plan-item plan-zugabe';
+    el.draggable = true;
+    el.dataset.itemId = data.item_id;
+    el.dataset.type = 'zugabe';
+    el.dataset.duration = '0';
+    el.innerHTML =
+      '<span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>' +
+      '<div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:#b45309">── Zugaben ──</div>' +
+      '<button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(' + data.item_id + ')">×</button>';
+    document.getElementById('plan-list').appendChild(el);
+    initDrag(el);
     recalcTimes();
   });
+}
+
+// ── Item entfernen ───────────────────────────────────────────────────────────
+function removeItem(itemId) {
+  var el = document.querySelector('.plan-item[data-item-id="' + itemId + '"]');
+  var isPiece = el && el.dataset.type === 'piece' && el.dataset.source && el.dataset.pieceId;
+
+  // Stücke parken statt löschen
+  if (isPiece) {
+    planPost('park_item', { item_id: itemId }, function(data) {
+      if (!data.ok) return;
+      if (el) {
+        // Parking-Element aus Plan-Daten bauen
+        var title = el.querySelector('div[style*="flex:1"] strong') ? el.querySelector('div[style*="flex:1"] strong').textContent : '–';
+        var composerEl = el.querySelector('div[style*="flex:1"] .small');
+        var composerHtml = composerEl ? composerEl.outerHTML : '';
+        addParkingEl(itemId, el.dataset.source, el.dataset.pieceId, el.dataset.duration, title, composerHtml);
+        el.remove();
+      }
+      recalcTimes();
+    });
+  } else {
+    // Blöcke / Halbzeit einfach löschen
+    planPost('remove_item', { item_id: itemId }, function(data) {
+      if (!data.ok) return;
+      if (el) el.remove();
+      recalcTimes();
+    });
+  }
+}
+
+// ── Ablage (Parking Area) ───────────────────────────────────────────────────
+function addParkingEl(itemId, source, pieceId, duration, title, composerHtml) {
+  var area = document.getElementById('parking-area');
+  var list = document.getElementById('parking-list');
+  area.style.display = '';
+
+  var el = document.createElement('div');
+  el.className = 'parking-item';
+  el.dataset.itemId = itemId;
+  el.dataset.source = source;
+  el.dataset.pieceId = pieceId;
+  el.dataset.duration = duration;
+
+  el.innerHTML =
+    '<button class="btn" style="padding:2px 8px;font-size:16px;line-height:1;flex-shrink:0" onclick="reAddFromParking(this)" title="Zurück in den Plan">+</button>' +
+    '<div style="flex:1;min-width:0"><strong>' + escHtml(title) + '</strong>' + composerHtml + '</div>' +
+    '<span class="small" style="white-space:nowrap;margin:0 4px;flex-shrink:0">' + escHtml(duration || '–') + '</span>' +
+    '<button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red);flex-shrink:0" onclick="removeFromParking(this)" title="Aus Ablage entfernen">×</button>';
+
+  list.appendChild(el);
+  updateParkingCount();
+}
+
+function reAddFromParking(btn) {
+  var el = btn.closest('.parking-item');
+  var itemId = el.dataset.itemId;
+  var source = el.dataset.source;
+  var pieceId = el.dataset.pieceId;
+
+  planPost('unpark_item', { item_id: itemId }, function(data) {
+    if (!data.ok) return;
+
+    usedKeys[source + ':' + pieceId] = true;
+
+    var emptyEl = document.getElementById('plan-empty');
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    var title = el.querySelector('strong') ? el.querySelector('strong').textContent : '–';
+    var composerDiv = el.querySelector('.small[style*="color:var(--muted)"]');
+    var composerHtml = composerDiv ? composerDiv.outerHTML : '';
+
+    var newEl = document.createElement('div');
+    newEl.className = 'plan-item';
+    newEl.draggable = true;
+    newEl.dataset.itemId = itemId;
+    newEl.dataset.type = 'piece';
+    newEl.dataset.duration = el.dataset.duration;
+    newEl.dataset.source = source;
+    newEl.dataset.pieceId = pieceId;
+
+    newEl.innerHTML =
+      '<span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>' +
+      '<span class="plan-nr"></span>' +
+      '<div style="flex:1"><strong>' + escHtml(title) + '</strong>' + composerHtml + '</div>' +
+      '<span class="small" style="white-space:nowrap;margin:0 8px">' + escHtml(el.dataset.duration || '–') + '</span>' +
+      '<button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(' + itemId + ')">×</button>';
+
+    document.getElementById('plan-list').appendChild(newEl);
+    initDrag(newEl);
+    recalcTimes();
+
+    // Quell-Button deaktivieren
+    var srcRow = document.querySelector('tr[data-source="' + source + '"][data-piece-id="' + pieceId + '"]');
+    if (srcRow) {
+      var srcBtn = srcRow.querySelector('.add-piece-btn');
+      if (srcBtn) { srcBtn.disabled = true; srcBtn.style.opacity = '.3'; srcBtn.style.pointerEvents = 'none'; }
+    }
+
+    // Aus Ablage entfernen
+    el.remove();
+    updateParkingCount();
+    updateParkingVisibility();
+  });
+}
+
+function removeFromParking(btn) {
+  var el = btn.closest('.parking-item');
+  var itemId = el.dataset.itemId;
+  var source = el.dataset.source;
+  var pieceId = el.dataset.pieceId;
+
+  planPost('remove_parked', { item_id: itemId }, function(data) {
+    if (!data.ok) return;
+    // Quell-Button wieder aktivieren
+    var key = source + ':' + pieceId;
+    delete usedKeys[key];
+    var rows = document.querySelectorAll('tr[data-source="' + source + '"][data-piece-id="' + pieceId + '"]');
+    rows.forEach(function(r) {
+      var b = r.querySelector('.add-piece-btn');
+      if (b) { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; }
+    });
+    el.remove();
+    updateParkingCount();
+    updateParkingVisibility();
+  });
+}
+
+function clearParking() {
+  if (!confirm('Alle Stücke aus der Ablage entfernen?')) return;
+  var items = document.querySelectorAll('#parking-list .parking-item');
+  items.forEach(function(el) {
+    var itemId = el.dataset.itemId;
+    var source = el.dataset.source;
+    var pieceId = el.dataset.pieceId;
+    planPost('remove_parked', { item_id: itemId }, function() {
+      var key = source + ':' + pieceId;
+      delete usedKeys[key];
+      var rows = document.querySelectorAll('tr[data-source="' + source + '"][data-piece-id="' + pieceId + '"]');
+      rows.forEach(function(r) {
+        var b = r.querySelector('.add-piece-btn');
+        if (b) { b.disabled = false; b.style.opacity = ''; b.style.pointerEvents = ''; }
+      });
+    });
+    el.remove();
+  });
+  updateParkingCount();
+  updateParkingVisibility();
+}
+
+function updateParkingVisibility() {
+  var area = document.getElementById('parking-area');
+  var items = document.querySelectorAll('#parking-list .parking-item');
+  area.style.display = items.length ? '' : 'none';
+}
+
+function updateParkingCount() {
+  var cnt = document.querySelectorAll('#parking-list .parking-item').length;
+  var el = document.getElementById('parking-count');
+  if (el) el.textContent = '(' + cnt + ')';
 }
 
 // ── Drag & Drop ──────────────────────────────────────────────────────────────

@@ -4,3 +4,4 @@ backups/*.json
 backups/*.zip
 backups/.last_*
 assets/logos/
+CLAUDE.md

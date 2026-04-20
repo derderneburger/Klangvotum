@@ -10,14 +10,15 @@ $isAdmin = sv_is_admin($user);
 
 // ── Formular-Helper ────────────────────────────────────────────────────────────
 function concertFormHtml(array $con = null, string $action): string {
-  $cid  = $con ? (int)$con['id'] : 0;
-  $name = htmlspecialchars($con['name']     ?? '', ENT_QUOTES);
-  $date = htmlspecialchars($con['date']     ?? '', ENT_QUOTES);
-  $loc  = htmlspecialchars($con['location'] ?? '', ENT_QUOTES);
-  $note = htmlspecialchars($con['notes']    ?? '', ENT_QUOTES);
-  $csrf = htmlspecialchars(sv_csrf_token(), ENT_QUOTES);
-  $btn  = $action === 'create' ? 'Anlegen' : 'Speichern';
-  $cidF = $cid ? '<input type="hidden" name="cid" value="' . $cid . '">' : '';
+  $cid       = $con ? (int)$con['id'] : 0;
+  $name      = htmlspecialchars($con['name']      ?? '', ENT_QUOTES);
+  $date      = htmlspecialchars($con['date']      ?? '', ENT_QUOTES);
+  $loc       = htmlspecialchars($con['location']  ?? '', ENT_QUOTES);
+  $note      = htmlspecialchars($con['notes']     ?? '', ENT_QUOTES);
+  $cancelled = !empty($con['cancelled']) ? 'checked' : '';
+  $csrf      = htmlspecialchars(sv_csrf_token(), ENT_QUOTES);
+  $btn       = $action === 'create' ? 'Anlegen' : 'Speichern';
+  $cidF      = $cid ? '<input type="hidden" name="cid" value="' . $cid . '">' : '';
   return '<form method="post" class="grid" style="gap:12px">'
     . '<input type="hidden" name="csrf" value="' . $csrf . '">'
     . '<input type="hidden" name="action" value="' . $action . '">'
@@ -30,6 +31,8 @@ function concertFormHtml(array $con = null, string $action): string {
     .   '<input name="location" value="' . $loc . '" placeholder="z.B. Stadthalle Hildesheim" style="width:100%;margin-top:5px"></label>'
     . '<label style="grid-column:1/-1">Notizen<br>'
     .   '<textarea name="notes" rows="2" style="width:100%;margin-top:5px">' . $note . '</textarea></label>'
+    . '<label class="label-checkbox" style="grid-column:1/-1">'
+    .   '<input type="checkbox" name="cancelled" value="1" ' . $cancelled . '> Ausgefallen</label>'
     . '<div style="grid-column:1/-1;display:flex;gap:8px">'
     .   '<button class="btn primary" type="submit">' . $btn . '</button>'
     .   '<button class="btn" type="button" data-close-dialog>Abbrechen</button>'
@@ -43,24 +46,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $action = $_POST['action'] ?? '';
 
   if ($action === 'create' || $action === 'update') {
-    $cid      = (int)($_POST['cid'] ?? 0);
-    $name     = trim($_POST['name']     ?? '');
-    $date     = trim($_POST['date']     ?? '') !== '' ? $_POST['date'] : null;
-    $year     = $date ? (int)date('Y', strtotime($date)) : null;
-    $location = trim($_POST['location'] ?? '') ?: null;
-    $notes    = trim($_POST['notes']    ?? '') ?: null;
+    $cid       = (int)($_POST['cid'] ?? 0);
+    $name      = trim($_POST['name']     ?? '');
+    $date      = trim($_POST['date']     ?? '') !== '' ? $_POST['date'] : null;
+    $year      = $date ? (int)date('Y', strtotime($date)) : null;
+    $location  = trim($_POST['location'] ?? '') ?: null;
+    $notes     = trim($_POST['notes']    ?? '') ?: null;
+    $cancelled = isset($_POST['cancelled']) ? 1 : 0;
     if ($name === '') {
       sv_flash_set('error', 'Name ist Pflichtfeld.');
     } else {
       try {
         if ($action === 'create') {
-          $pdo->prepare("INSERT INTO concerts (name, date, year, location, notes) VALUES (?,?,?,?,?)")
-            ->execute([$name, $date, $year, $location, $notes]);
+          $pdo->prepare("INSERT INTO concerts (name, date, year, location, notes, cancelled) VALUES (?,?,?,?,?,?)")
+            ->execute([$name, $date, $year, $location, $notes, $cancelled]);
           sv_log($user['id'], 'concert_create', $name);
           sv_flash_set('success', 'Auftritt angelegt.');
         } else {
-          $pdo->prepare("UPDATE concerts SET name=?, date=?, year=?, location=?, notes=? WHERE id=?")
-            ->execute([$name, $date, $year, $location, $notes, $cid]);
+          $pdo->prepare("UPDATE concerts SET name=?, date=?, year=?, location=?, notes=?, cancelled=? WHERE id=?")
+            ->execute([$name, $date, $year, $location, $notes, $cancelled, $cid]);
           sv_log($user['id'], 'concert_update', "cid=$cid");
           sv_flash_set('success', 'Auftritt aktualisiert.');
         }
@@ -138,13 +142,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 ?
 /', trim($text));
       $imported = 0; $skipped = 0; $piecesMissed = [];
+      try {
       foreach ($lines as $line) {
         $line = trim($line);
-        if ($line === '' || $line[0] === '#') continue;
-        // Semikolon-getrennt
-        $cols = array_map('trim', explode(';', $line));
+        if ($line === '' || $line[0] === '#' || $line[0] === '"') continue;
+        // Semikolon-getrennt, mit korrektem CSV-Parsing (behandelt ""-Quotes)
+        $cols = array_map('trim', str_getcsv($line, ';'));
         if (count($cols) < 2) continue;
         $cname    = $cols[0];
+        if ($cname === '' || str_starts_with($cname, '#')) continue;
         $rawDate  = $cols[1] ?? '';
         // Rückwärtskompatibel: 4-stellig = Jahr, sonst Datum parsen
         if ($rawDate !== '' && preg_match('/^\d{4}$/', $rawDate)) {
@@ -159,20 +165,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           $cyear = null;
         }
         $cloc     = isset($cols[2]) && $cols[2] !== '' ? $cols[2] : null;
-        $titles   = array_slice($cols, 3);
+        // Spalte 4 (Index 3): optional cancelled-Flag (0 oder 1), dann Stücke ab Index 4
+        $cancelledFlag = 0;
+        $pieceStart    = 3;
+        if (isset($cols[3]) && ($cols[3] === '0' || $cols[3] === '1')) {
+          $cancelledFlag = (int)$cols[3];
+          $pieceStart    = 4;
+        }
+        $titles   = array_slice($cols, $pieceStart);
         if ($cname === '') continue;
-        // Konzert anlegen oder holen
-        $ex = $pdo->prepare("SELECT id FROM concerts WHERE name=?");
-        $ex->execute([$cname]);
+        // Konzert anlegen oder holen — Match auf Name+Datum damit gleiche Namen mit verschiedenen Daten koexistieren können
+        $exParams = [$cname];
+        $dateCond = 'date IS NULL';
+        if ($cdate !== null) { $dateCond = 'date=?'; $exParams[] = $cdate; }
+        $yearCond = 'year IS NULL';
+        if ($cyear !== null) { $yearCond = 'year=?'; $exParams[] = $cyear; }
+        $ex = $pdo->prepare("SELECT id FROM concerts WHERE name=? AND $dateCond AND $yearCond");
+        $ex->execute($exParams);
         $cid = $ex->fetchColumn();
         if (!$cid) {
-          $pdo->prepare("INSERT INTO concerts (name, date, year, location) VALUES (?,?,?,?)")
-            ->execute([$cname, $cdate, $cyear, $cloc]);
+          $pdo->prepare("INSERT INTO concerts (name, date, year, location, cancelled) VALUES (?,?,?,?,?)")
+            ->execute([$cname, $cdate, $cyear, $cloc, $cancelledFlag]);
           $cid = (int)$pdo->lastInsertId();
           $imported++;
         } else {
-          $pdo->prepare("UPDATE concerts SET date=COALESCE(date,?), year=COALESCE(year,?), location=COALESCE(location,?) WHERE id=?")
-            ->execute([$cdate, $cyear, $cloc, $cid]);
+          $pdo->prepare("UPDATE concerts SET location=COALESCE(location,?), cancelled=? WHERE id=?")
+            ->execute([$cloc, $cancelledFlag, $cid]);
           $skipped++;
         }
         // Stücke verknüpfen
@@ -199,6 +217,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $piecesMissed[] = $title;
           }
         }
+      }
+      } catch (Throwable $e) {
+        sv_flash_set('error', 'Import-Fehler: ' . $e->getMessage() . ' (Zeile: ' . $e->getLine() . ')');
+        header('Location: ' . $base . '/admin/concerts.php');
+        exit;
       }
       $msg = "$imported neu importiert, $skipped aktualisiert.";
       if ($piecesMissed) $msg .= ' Nicht gefunden: ' . implode(', ', array_unique($piecesMissed));
@@ -337,6 +360,9 @@ body{font-family:'Georgia',serif;color:#1a1a1a}
 h1{font-size:22pt;color:<?=$accentRed?>;margin-bottom:4px}
 .section{margin-bottom:32px;page-break-inside:avoid}
 h2{font-size:14pt;color:<?=$accentRed?>;margin:0 0 4px 0;border-bottom:2px solid <?=$accentRed?>;padding-bottom:4px}
+h2.cancelled{color:#92400e;border-bottom-color:#d97706}
+.cancelled-badge{display:inline-block;font-size:8pt;font-weight:700;color:#92400e;background:#fff7e0;border:1px solid #d97706;border-radius:4px;padding:1px 7px;margin-left:8px;vertical-align:middle;letter-spacing:.03em}
+.cancelled-notice{font-size:9pt;color:#92400e;background:#fff7e0;border:1px solid #d97706;border-radius:5px;padding:5px 10px;margin-bottom:8px}
 .meta{color:#888;font-size:10pt;margin-bottom:8px}
 table{width:100%;border-collapse:collapse;margin-bottom:4px}
 th{text-align:left;padding:5px 8px;background:<?=$accentRed?>;color:#fff;font-size:8.5pt;text-transform:uppercase}
@@ -345,7 +371,7 @@ tr:nth-child(even){background:#fafafa}
 .num{color:#aaa;text-align:center;width:24px}
 .page{max-width:800px;margin:0 auto;padding:0 20px}
 @media screen{body{background:#e8e5e0}.page{margin:20px auto;box-shadow:0 4px 40px rgba(0,0,0,.2);background:#fff;padding:30px}.print-btn{display:block;text-align:center;padding:14px;background:<?=$accentRed?>;color:#fff;font-family:sans-serif;font-size:14px;font-weight:700;cursor:pointer;border:none;width:100%;letter-spacing:.04em}.print-btn:hover{background:<?=$accentHover?>}}
-@media print{.print-btn{display:none}th{background:none!important;color:#000!important;font-weight:700;border-bottom:2px solid #000}}
+@media print{.print-btn{display:none}th{background:none!important;color:#000!important;font-weight:700;border-bottom:2px solid #000}.cancelled-badge{border:1px solid #999;background:none}}
 </style></head>
 <body>
 <button class="print-btn" onclick="window.print()">🖨 Drucken / Als PDF speichern</button>
@@ -353,15 +379,16 @@ tr:nth-child(even){background:#fafafa}
 <h1>Auftrittchronik</h1>
 <p style="color:#888;font-size:10pt">SBO Hildesheim · Stand <?=date('d.m.Y')?> · <?=count($allConcerts)?> Auftritte</p>
 <?php foreach ($allConcerts as $con): ?>
-<?php $prog = $allPrograms[(int)$con['id']] ?? []; ?>
+<?php $prog = $allPrograms[(int)$con['id']] ?? []; $isCancelled = !empty($con['cancelled']); ?>
 <div class="section">
-  <h2><?=htmlspecialchars($con['name'])?></h2>
+  <h2<?=$isCancelled?' class="cancelled"':''?>><?=htmlspecialchars($con['name'])?><?php if($isCancelled): ?><span class="cancelled-badge">⚠ AUSGEFALLEN</span><?php endif; ?></h2>
   <div class="meta">
     <?php $conDate = concertDate($con); ?>
     <?php if($conDate): ?><?=htmlspecialchars($conDate)?><?php endif; ?>
     <?php if($con['location']): ?><?=$conDate?' · ':''?><?=htmlspecialchars($con['location'])?><?php endif; ?>
     · <?=count($prog)?> Stücke
   </div>
+  <?php if ($isCancelled): ?><div class="cancelled-notice">⚠ Dieser Auftritt ist als ausgefallen markiert.</div><?php endif; ?>
   <?php if ($prog): ?>
   <table><thead><tr><th>#</th><th>Titel</th><th>Komponist / Arrangeur</th><th>Länge</th></tr></thead><tbody>
   <?php foreach ($prog as $i => $p): ?>
@@ -409,16 +436,22 @@ tr:nth-child(even){background:#fafafa}
 .page{max-width:700px;margin:0 auto;padding:0 20px}
 @media screen{body{background:#e8e5e0}.page{margin:20px auto;box-shadow:0 4px 40px rgba(0,0,0,.2);background:#fff;padding:30px}.print-btn{display:block;text-align:center;padding:14px;background:<?=$accentRed?>;color:#fff;font-family:sans-serif;font-size:14px;font-weight:700;cursor:pointer;border:none;width:100%;letter-spacing:.04em}.print-btn:hover{background:<?=$accentHover?>}}
 @media print{.print-btn{display:none}th{background:none!important;color:#000!important;font-weight:700;border-bottom:2px solid #000}}
+.cancelled-badge{display:inline-block;margin-left:10px;font-size:10pt;font-weight:700;color:#d97706;border:2px solid #d97706;border-radius:4px;padding:1px 7px;vertical-align:middle;letter-spacing:.04em}
+.cancelled-notice{background:#fffbf0;border:1px solid #f5c06a;border-radius:6px;padding:10px 14px;margin-bottom:18px;color:#92400e;font-size:10pt}
+@media print{.cancelled-badge{color:#555!important;border-color:#555!important}.cancelled-notice{background:none!important;border-color:#999!important;color:#333!important}}
 </style></head>
 <body>
 <button class="print-btn" onclick="window.print()">🖨 Drucken / Als PDF speichern</button>
 <div class="page">
-<h1><?=htmlspecialchars($exportName)?></h1>
+<h1><?=htmlspecialchars($exportName)?><?php if(!empty($selected['cancelled'])): ?> <span class="cancelled-badge">⚠ AUSGEFALLEN</span><?php endif; ?></h1>
 <div class="sub">
   <?php if($exportDate): ?><?=htmlspecialchars($exportDate)?><?php endif; ?>
   <?php if($exportLoc): ?> · <?=htmlspecialchars($exportLoc)?><?php endif; ?>
   · <?=count($selPieces)?> Stücke
 </div>
+<?php if(!empty($selected['cancelled'])): ?>
+<div class="cancelled-notice">⚠ Dieser Auftritt ist als <strong>ausgefallen</strong> markiert.</div>
+<?php endif; ?>
 <table>
 <thead><tr><th>#</th><th>Titel</th><th>Komponist / Arrangeur</th><th>Länge</th></tr></thead>
 <tbody>
@@ -501,8 +534,14 @@ sv_header('Auftrittchronik', $user);
         <div style="padding:20px" class="small"><?=$search?'Keine Treffer.':'Noch keine Auftritte angelegt.'?></div>
       <?php endif; ?>
       <?php foreach ($concerts as $c): ?>
-        <?php $active = $selectedId===(int)$c['id']; $cIsDeleted = !empty($c['deleted_at']); ?>
-        <div class="list-row" data-cid="<?=h($c['id'])?>" style="padding:11px 14px;border-bottom:1px solid var(--border);<?=$active?'background:#f0f5e8;border-left:3px solid var(--green)':''?><?php if($cIsDeleted && !$active): ?>;border-left:3px solid var(--red)<?php endif; ?>;display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap">
+        <?php
+          $active = $selectedId===(int)$c['id'];
+          $cIsDeleted = !empty($c['deleted_at']);
+          $cIsCancelled = !empty($c['cancelled']);
+          $borderColor = $active ? 'var(--green)' : ($cIsDeleted ? 'var(--red)' : ($cIsCancelled ? '#d97706' : 'transparent'));
+          $bgColor = $active ? '#f0f5e8' : ($cIsCancelled && !$active ? '#fffbf0' : '');
+        ?>
+        <div class="list-row" data-cid="<?=h($c['id'])?>" data-cancelled="<?=$cIsCancelled?1:0?>" style="padding:11px 14px;border-bottom:1px solid var(--border);border-left:3px solid <?=$borderColor?>;<?=$bgColor?"background:$bgColor;":'';?>display:flex;align-items:flex-start;gap:6px;flex-wrap:wrap">
           <input type="checkbox" class="export-check" value="<?=h($c['id'])?>" onclick="event.stopPropagation();updateExportBtn()" style="flex-shrink:0;margin-top:3px;cursor:pointer;accent-color:var(--red)">
           <?php if ($canEdit): ?><span style="color:var(--muted);cursor:grab;font-size:16px;flex-shrink:0;margin-top:2px;user-select:none" title="Ziehen zum Sortieren">⠿</span><?php endif; ?>
           <a href="?cid=<?=h($c['id'])?><?=$search?'&q='.urlencode($search):''?>" style="text-decoration:none;flex:1;display:block">
@@ -514,6 +553,7 @@ sv_header('Auftrittchronik', $user);
             </div>
             <?php $cnt = $pieceCounts[(int)$c['id']] ?? 0; ?>
             <?php if ($cnt): ?><div class="small" style="color:var(--green);margin-top:3px">🎵 <?=$cnt?> Stück<?=$cnt!==1?'e':''?></div><?php endif; ?>
+            <?php if ($cIsCancelled): ?><div style="margin-top:3px"><span class="badge" style="background:#fff7e0;border-color:#d97706;color:#92400e;font-size:11px">⚠ Ausgefallen</span></div><?php endif; ?>
           </a>
           <?php if ($canEdit): ?>
           <div style="position:relative;flex-shrink:0">
@@ -590,6 +630,11 @@ sv_header('Auftrittchronik', $user);
               <?php if ($selected['location']): ?><?=$selDate?' · ':''?><?=h($selected['location'])?><?php endif; ?>
             </div>
             <?php if ($selected['notes']): ?><div class="small" style="margin-top:5px"><?=nl2br(h($selected['notes']))?></div><?php endif; ?>
+            <?php if (!empty($selected['cancelled'])): ?>
+            <div style="margin-top:8px;padding:8px 12px;background:#fff7e0;border:1.5px solid #d97706;border-radius:8px">
+              <div class="small" style="color:#92400e;font-weight:700">⚠ Dieser Auftritt ist als ausgefallen markiert.</div>
+            </div>
+            <?php endif; ?>
             <?php if (!empty($selected['deleted_at'])): ?>
             <div style="margin-top:8px;padding:8px 12px;background:var(--red-soft);border:1.5px solid rgba(193,9,15,.2);border-radius:8px">
               <div class="small" style="color:var(--red)">🗑 Löschung vorgemerkt — <a href="<?=h($base)?>/admin/geloeschte.php" style="color:var(--red);text-decoration:underline">Zur Prüfung →</a></div>
@@ -922,13 +967,13 @@ function saveListOrder() {
       <div style="background:#f5f2ee;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:14px">
         <div style="font-weight:700;margin-bottom:6px">📋 CSV-Format (Semikolon-getrennt):</div>
         <code style="font-size:12px;line-height:1.7;display:block">
-          Name;Datum;Ort;Stück1;Stück2;Stück3;...<br>
-          Jahreskonzert 2024;05.04.2024;Stadthalle Hildesheim;Nordische Fahrt;Halleluja;Persis<br>
-          Weihnachtskonzert 2023;2023;Marktkirche;Jingle Bells;O Holy Night
+          Name;Datum;Ort;Ausgefallen;Stück1;Stück2;...<br>
+          Jahreskonzert 2024;05.04.2024;Stadthalle Hildesheim;0;Nordische Fahrt;Persis<br>
+          Jahreskonzert 2023;25.02.2023;;1;Jingle Bells;O Holy Night
         </code>
         <div style="margin-top:8px;color:var(--muted)">
           · Erste Spalte = Name (Pflicht) · Zweite = Datum (dd.mm.yyyy) oder Jahr · Dritte = Ort (optional)<br>
-          · Ab Spalte 4 = Stücktitel exakt wie in der Bibliothek<br>
+          · Vierte Spalte = Ausgefallen (0 oder 1, optional) · Ab Spalte 5 = Stücktitel exakt wie in der Bibliothek<br>
           · Zeilen mit # am Anfang werden übersprungen (Kommentare)<br>
           · Bereits vorhandene Konzerte werden nicht überschrieben, nur neue Stücke ergänzt
         </div>

@@ -42,6 +42,10 @@ code{font-family:monospace;background:#f0ede8;border-radius:4px;padding:1px 5px;
 /* ── LAYOUT ─────────────────────────────────── */
 .container{max-width:1200px;margin:0 auto;padding:16px 24px}
 main.container{padding-top:24px;padding-bottom:48px}
+@media(max-width:480px){
+  .container{padding:12px 14px}
+  main.container{padding-top:16px}
+}
 .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
 .grid{display:grid;gap:12px}
 .small{color:var(--muted);font-size:.875rem}
@@ -160,10 +164,15 @@ tr:hover td{background:#faf8f5}
 
 /* ── FILTER BAR ─────────────────────────────── */
 .filterbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.filterbar strong{font-size:13px;color:var(--muted)}
-.filterbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--border);background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .12s}
+.filterbar strong{font-size:13px;color:var(--muted);white-space:nowrap}
+.filterbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--border);background:transparent;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .12s;white-space:nowrap}
 .filterbtn:hover{border-color:#aaa;color:var(--text)}
 .filterbtn.active{background:var(--text);border-color:var(--text);color:#fff}
+@media(max-width:480px){
+  .filterbar{gap:5px}
+  .filterbtn{padding:5px 10px;font-size:12px}
+  #voteStats{width:100%;margin-left:0!important;margin-top:2px}
+}
 
 /* ── SONG CARDS ─────────────────────────────── */
 .song-list{display:grid;gap:12px;margin-top:16px}
@@ -187,7 +196,7 @@ tr:hover td{background:#faf8f5}
 .song-card.voted-neutral{border-left-color:#b0a898}
 
 @media(max-width:600px){
-  .song-card{grid-template-columns:1fr}
+  .song-card{grid-template-columns:1fr;padding:14px 14px}
 }
 
 .song-title{font-weight:700;font-size:1rem;margin-bottom:4px;color:var(--text)}
@@ -199,6 +208,10 @@ tr:hover td{background:#faf8f5}
 
 @media(max-width:600px){
   .vote-buttons{justify-content:flex-start;margin-top:8px}
+}
+@media(max-width:380px){
+  .vote-btn{padding:6px 11px;font-size:12px}
+  .vote-btn.reset-btn{padding:6px 8px}
 }
 
 .vote-btn{
@@ -270,7 +283,7 @@ tr:hover td{background:#faf8f5}
 .heat-neg{background:linear-gradient(90deg,var(--red),#ff6b6b)}
 
 /* ── ADMIN: GRID ────────────────────────────── */
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;align-items:start}
 @media(max-width:600px){.admin-grid{grid-template-columns:1fr}}
 
 .admin-section-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}

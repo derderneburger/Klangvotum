@@ -156,12 +156,16 @@ function sv_ensure_schema(PDO $pdo): void {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
   // Add year column if missing
   $concertCols = array_column($pdo->query("SHOW COLUMNS FROM concerts")->fetchAll(), 'Field');
+  // Unique-Constraint auf name entfernen — gleiche Namen mit verschiedenen Daten erlaubt
+  $concertIdxs = array_column($pdo->query("SHOW INDEX FROM concerts WHERE Key_name='uq_concerts_name'")->fetchAll(), 'Key_name');
+  if ($concertIdxs) $pdo->exec("ALTER TABLE concerts DROP INDEX uq_concerts_name");
   if (!in_array('year',       $concertCols)) $pdo->exec("ALTER TABLE concerts ADD COLUMN year       SMALLINT NULL AFTER name");
   if (!in_array('sort_order', $concertCols)) $pdo->exec("ALTER TABLE concerts ADD COLUMN sort_order INT NULL AFTER year");
   // Soft-Delete-Spalten
   if (!in_array('deleted_at',    $concertCols)) $pdo->exec("ALTER TABLE concerts ADD COLUMN deleted_at    DATETIME     NULL");
   if (!in_array('deleted_by',    $concertCols)) $pdo->exec("ALTER TABLE concerts ADD COLUMN deleted_by    INT          NULL");
   if (!in_array('delete_reason', $concertCols)) $pdo->exec("ALTER TABLE concerts ADD COLUMN delete_reason VARCHAR(255) NULL");
+  if (!in_array('cancelled',     $concertCols)) $pdo->exec("ALTER TABLE concerts ADD COLUMN cancelled     TINYINT(1)   NOT NULL DEFAULT 0");
 
   // ── v2: pieces — UNIQUE KEY auf title+arranger ändern ──────────────────────
   try {
@@ -267,7 +271,7 @@ function sv_ensure_schema(PDO $pdo): void {
         id                INT NOT NULL AUTO_INCREMENT,
         plan_id           INT NOT NULL,
         position          INT NOT NULL,
-        item_type         ENUM('piece','block','halftime') NOT NULL DEFAULT 'piece',
+        item_type         ENUM('piece','block','halftime','zugabe','parked') NOT NULL DEFAULT 'piece',
         piece_id          INT NULL,
         source            ENUM('song','piece') NULL,
         label             VARCHAR(255) NULL,
@@ -276,6 +280,19 @@ function sv_ensure_schema(PDO $pdo): void {
         KEY idx_cpitems_plan (plan_id),
         CONSTRAINT fk_cpitems_plan FOREIGN KEY (plan_id) REFERENCES concert_plans (id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+  } catch (Throwable $e) {}
+
+  // ── concert_plan_items — ENUM um 'zugabe' + 'parked' ergänzen ───────────────
+  try {
+    $colDef = $pdo->query("SHOW COLUMNS FROM concert_plan_items LIKE 'item_type'")->fetch();
+    if ($colDef && strpos($colDef['Type'], 'zugabe') === false) {
+      $pdo->exec("ALTER TABLE concert_plan_items MODIFY COLUMN item_type ENUM('piece','block','halftime','zugabe','parked') NOT NULL DEFAULT 'piece'");
+      // Datenbereinigung nach ENUM-Erweiterung:
+      // Parked-Items (position=0 + piece_id gesetzt) wurden als '' gespeichert → 'parked'
+      $pdo->exec("UPDATE concert_plan_items SET item_type = 'parked' WHERE item_type = '' AND piece_id IS NOT NULL AND position = 0");
+      // Übrige ungültige Zeilen (kaputte Separatoren wie zugabe/halftime) entfernen
+      $pdo->exec("DELETE FROM concert_plan_items WHERE item_type = ''");
+    }
   } catch (Throwable $e) {}
 
   // ── App-Einstellungen ────────────────────────────────────────────────────
@@ -381,15 +398,60 @@ function sv_is_frozen(): bool {
     $pdo = sv_pdo();
     $stmt = $pdo->query("SELECT action FROM audit_log WHERE action IN ('freeze_on','freeze_off') ORDER BY id DESC LIMIT 1");
     $row = $stmt->fetch();
-    if (!$row) return false;
-    return $row['action'] === 'freeze_on';
+    $lastAction = $row ? $row['action'] : null;
+
+    // Manuelle Freigabe gewinnt immer — auch gegen Deadline
+    if ($lastAction === 'freeze_off') return false;
+    // Manuell eingefroren
+    if ($lastAction === 'freeze_on') return true;
+
+    // Deadline prüfen
+    if (sv_setting_get('vote_deadline_active') === '1') {
+      $dl = sv_setting_get('vote_deadline', '');
+      if ($dl && strtotime($dl) !== false && strtotime($dl) <= time()) {
+        return true;
+      }
+    }
+    return false;
   } catch (Throwable $e) {
     return false;
   }
 }
 
+// Gibt zurück warum eingefroren: 'manual'|'deadline'|'none'
+function sv_frozen_reason(): string {
+  try {
+    $pdo = sv_pdo();
+    $stmt = $pdo->query("SELECT action FROM audit_log WHERE action IN ('freeze_on','freeze_off') ORDER BY id DESC LIMIT 1");
+    $row = $stmt->fetch();
+    $lastAction = $row ? $row['action'] : null;
+    if ($lastAction === 'freeze_off') return 'none';
+    if ($lastAction === 'freeze_on') return 'manual';
+    if (sv_setting_get('vote_deadline_active') === '1') {
+      $dl = sv_setting_get('vote_deadline', '');
+      if ($dl && strtotime($dl) !== false && strtotime($dl) <= time()) return 'deadline';
+    }
+    return 'none';
+  } catch (Throwable $e) {
+    return 'none';
+  }
+}
+
 function sv_set_frozen(int $admin_user_id, bool $on): void {
   sv_log($admin_user_id, $on ? 'freeze_on' : 'freeze_off', null);
+}
+
+function sv_human_diff(int $seconds): string {
+  if ($seconds < 60)   return $seconds . ' Sek.';
+  if ($seconds < 3600) return round($seconds / 60) . ' Min.';
+  if ($seconds < 86400) {
+    $h = floor($seconds / 3600);
+    $m = round(($seconds % 3600) / 60);
+    return $m > 0 ? "{$h} Std. {$m} Min." : "{$h} Std.";
+  }
+  $d = floor($seconds / 86400);
+  $h = round(($seconds % 86400) / 3600);
+  return $h > 0 ? "{$d} Tag" . ($d !== 1 ? 'en' : '') . " {$h} Std." : "{$d} Tag" . ($d !== 1 ? 'en' : '');
 }
 
 // ── App-Einstellungen ────────────────────────────────────────────────────────

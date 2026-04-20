@@ -227,94 +227,170 @@ sv_header($isAdmin ? 'Admin' : 'Verwaltung', $u);
 <?php endif; ?>
 
 <!-- Verwaltung Grid -->
+<style>
+  .asc-illus {
+    display:flex;align-items:center;gap:16px;
+  }
+  .asc-illus svg {
+    flex-shrink:0;width:72px;height:72px;opacity:.25;color:var(--accent);
+  }
+  .asc-illus .asc-body { flex:1;min-width:0; }
+  @media(max-width:480px){
+    .asc-illus svg { width:44px;height:44px; }
+  }
+  @media(max-width:360px){
+    .asc-illus svg { display:none; }
+  }
+</style>
+
+<?php
+// SVG Illustrationen für Admin-Kacheln
+$svgVote = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="12" y="8" width="48" height="56" rx="6" stroke="currentColor" stroke-width="3"/><path d="M24 28l6 6 12-14" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/><line x1="24" y1="44" x2="48" y2="44" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="24" y1="52" x2="40" y2="52" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
+
+$svgChart = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="42" width="10" height="20" rx="2" fill="currentColor" opacity=".4"/><rect x="25" y="28" width="10" height="34" rx="2" fill="currentColor" opacity=".55"/><rect x="40" y="18" width="10" height="44" rx="2" fill="currentColor" opacity=".7"/><rect x="55" y="10" width="10" height="52" rx="2" fill="currentColor" opacity=".85"/><line x1="6" y1="64" x2="68" y2="64" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
+
+$svgLibrary = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="12" width="16" height="48" rx="3" stroke="currentColor" stroke-width="2.5" transform="rotate(-6 8 12)"/><rect x="28" y="10" width="16" height="50" rx="3" stroke="currentColor" stroke-width="2.5"/><rect x="48" y="12" width="16" height="48" rx="3" stroke="currentColor" stroke-width="2.5" transform="rotate(6 48 12)"/><path d="M32 22h8M32 28h8M32 34h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+$svgCalendar = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="16" width="52" height="46" rx="6" stroke="currentColor" stroke-width="3"/><line x1="10" y1="30" x2="62" y2="30" stroke="currentColor" stroke-width="2.5"/><line x1="24" y1="10" x2="24" y2="22" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="48" y1="10" x2="48" y2="22" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="24" cy="42" r="3" fill="currentColor"/><circle cx="36" cy="42" r="3" fill="currentColor"/><circle cx="48" cy="42" r="3" fill="currentColor"/><circle cx="24" cy="52" r="3" fill="currentColor"/><circle cx="36" cy="52" r="3" fill="currentColor"/></svg>';
+
+$svgPlanner = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="14" y="6" width="44" height="60" rx="5" stroke="currentColor" stroke-width="3"/><line x1="14" y1="18" x2="58" y2="18" stroke="currentColor" stroke-width="2"/><line x1="22" y1="28" x2="50" y2="28" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="22" y1="36" x2="50" y2="36" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="22" y1="44" x2="42" y2="44" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><path d="M22 52l4 4 10-10" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="36" cy="12" r="2.5" fill="currentColor"/></svg>';
+
+$svgUsers = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="24" r="10" stroke="currentColor" stroke-width="3"/><path d="M16 58c0-11 8.9-20 20-20s20 9 20 20" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="54" cy="28" r="7" stroke="currentColor" stroke-width="2.5"/><path d="M62 52c0-6.6-3.6-12-9-12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
+
+$svgSettings = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="10" stroke="currentColor" stroke-width="3"/><path d="M36 8v8M36 56v8M8 36h8M56 36h8M16.2 16.2l5.6 5.6M50.2 50.2l5.6 5.6M55.8 16.2l-5.6 5.6M21.8 50.2l-5.6 5.6" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
+
+$svgWrench = '<svg viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M44 16a16 16 0 00-20 20l-14 14a4 4 0 000 5.6l6.4 6.4a4 4 0 005.6 0l14-14A16 16 0 0044 16z" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><circle cx="18" cy="56" r="2" fill="currentColor"/><path d="M42 18l12 12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>';
+?>
+
 <div class="admin-grid">
 
   <?php if ($canNoten || $isAdmin): ?>
   <div class="admin-section-card">
-    <h3>Abstimmung</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/abstimmungstitel.php">🎵 Abstimmungstitel</a>
-      <?php if ($isAdmin): ?>
-      <a class="btn" href="<?=h($base)?>/admin/freeze.php">❄️ Einfrieren</a>
-      <a class="btn" href="<?=h($base)?>/admin/kartenanzeige.php">🎨 Anzeige</a>
-      <?php endif; ?>
+    <div class="asc-illus">
+      <?=$svgVote?>
+      <div class="asc-body">
+        <h3>Abstimmung</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/abstimmungstitel.php">🎵 Abstimmungstitel</a>
+          <?php if ($isAdmin): ?>
+          <a class="btn" href="<?=h($base)?>/admin/freeze.php">❄️ Einfrieren</a>
+          <a class="btn" href="<?=h($base)?>/admin/kartenanzeige.php">🎨 Anzeige</a>
+          <?php endif; ?>
+        </div>
+        <div class="small"><?= $isAdmin ? 'Titel zur Abstimmung stellen und Abstimmung sperren.' : 'Titel zur Abstimmung verwalten.' ?></div>
+      </div>
     </div>
-    <div class="small"><?= $isAdmin ? 'Titel zur Abstimmung stellen und Abstimmung sperren.' : 'Titel zur Abstimmung verwalten.' ?></div>
   </div>
   <?php endif; ?>
 
   <?php if ($isLeitung): ?>
   <div class="admin-section-card">
-    <h3>Auswertung</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/progress.php">📈 Fortschritt</a>
-      <a class="btn" href="<?=h($base)?>/admin/results.php">📊 Ergebnisse</a>
-      <?php if ($isAdmin): ?>
-      <a class="btn" href="<?=h($base)?>/admin/votes.php">🗳️ Stimmen</a>
-      <?php endif; ?>
+    <div class="asc-illus">
+      <?=$svgChart?>
+      <div class="asc-body">
+        <h3>Auswertung</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/progress.php">📈 Fortschritt</a>
+          <a class="btn" href="<?=h($base)?>/admin/results.php">📊 Ergebnisse</a>
+          <?php if ($isAdmin): ?>
+          <a class="btn" href="<?=h($base)?>/admin/votes.php">🗳️ Stimmen</a>
+          <?php endif; ?>
+        </div>
+        <div class="small">Wer hat abgestimmt, aggregierte Ergebnisse und Detailansicht.</div>
+      </div>
     </div>
-    <div class="small">Wer hat abgestimmt, aggregierte Ergebnisse und Detailansicht.</div>
   </div>
   <?php endif; ?>
 
   <div class="admin-section-card">
-    <h3>Notenbibliothek</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/bibliothek.php">📚 Bibliothek</a>
-      <?php if ($canNoten): ?>
-      <a class="btn" href="<?=h($base)?>/admin/ausleihen.php">📦 Ausleihen</a>
-      <a class="btn" href="<?=h($base)?>/admin/vorschlaege.php">📝 Vorschläge<?php if($pendingSuggestions): ?> <span style="background:#e65100;color:#fff;border-radius:50%;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px"><?=$pendingSuggestions?></span><?php endif; ?></a>
-      <a class="btn" href="<?=h($base)?>/admin/bibliothek_inhaltsverzeichnis.php" target="_blank">📄 Inhaltsverzeichnis</a>
-      <?php endif; ?>
-      <?php if ($isAdmin && $deletedTotal > 0): ?>
-      <a class="btn" href="<?=h($base)?>/admin/geloeschte.php">🗑 Gelöschte<?php if($deletedTotal): ?> <span style="background:var(--red);color:#fff;border-radius:50%;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px"><?=$deletedTotal?></span><?php endif; ?></a>
-      <?php endif; ?>
+    <div class="asc-illus">
+      <?=$svgLibrary?>
+      <div class="asc-body">
+        <h3>Notenbibliothek</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/bibliothek.php">📚 Bibliothek</a>
+          <?php if ($canNoten): ?>
+          <a class="btn" href="<?=h($base)?>/admin/ausleihen.php">📦 Ausleihen</a>
+          <a class="btn" href="<?=h($base)?>/admin/vorschlaege.php">📝 Vorschläge<?php if($pendingSuggestions): ?> <span style="background:#e65100;color:#fff;border-radius:50%;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px"><?=$pendingSuggestions?></span><?php endif; ?></a>
+          <a class="btn" href="<?=h($base)?>/admin/bibliothek_inhaltsverzeichnis.php" target="_blank">📄 Inhaltsverzeichnis</a>
+          <?php endif; ?>
+          <?php if ($isAdmin && $deletedTotal > 0): ?>
+          <a class="btn" href="<?=h($base)?>/admin/geloeschte.php">🗑 Gelöschte<?php if($deletedTotal): ?> <span style="background:var(--red);color:#fff;border-radius:50%;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px"><?=$deletedTotal?></span><?php endif; ?></a>
+          <?php endif; ?>
+        </div>
+        <div class="small">Alle Stücke die das Orchester besitzt oder je gespielt hat.</div>
+      </div>
     </div>
-    <div class="small">Alle Stücke die das Orchester besitzt oder je gespielt hat.</div>
   </div>
 
   <div class="admin-section-card">
-    <h3>Auftrittchronik</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/concerts.php">🎼 Chronik</a>
+    <div class="asc-illus">
+      <?=$svgCalendar?>
+      <div class="asc-body">
+        <h3>Auftrittchronik</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/concerts.php">🎼 Chronik</a>
+        </div>
+        <div class="small"><?= $canChronikEdit ? 'Konzerte dokumentieren und Stücke zuordnen.' : 'Konzerthistorie und gespielte Stücke einsehen.' ?></div>
+      </div>
     </div>
-    <div class="small"><?= $canChronikEdit ? 'Konzerte dokumentieren und Stücke zuordnen.' : 'Konzerthistorie und gespielte Stücke einsehen.' ?></div>
   </div>
+
+  <?php if ($isLeitung): ?>
+  <div class="admin-section-card">
+    <div class="asc-illus">
+      <?=$svgPlanner?>
+      <div class="asc-body">
+        <h3>Konzertplanung</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/planer.php">🎼 Konzertplaner</a>
+        </div>
+        <div class="small">Konzertprogramme zusammenstellen, vergleichen und drucken.</div>
+      </div>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <?php if ($isAdmin): ?>
   <div class="admin-section-card">
-    <h3>Teilnehmer</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/users.php">👥 Benutzer</a>
+    <div class="asc-illus">
+      <?=$svgUsers?>
+      <div class="asc-body">
+        <h3>Teilnehmer</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/users.php">👥 Benutzer</a>
+        </div>
+        <div class="small">Zugänge anlegen, deaktivieren oder Passwörter zurücksetzen.</div>
+      </div>
     </div>
-    <div class="small">Zugänge anlegen, deaktivieren oder Passwörter zurücksetzen.</div>
   </div>
   <div class="admin-section-card">
-    <h3>Software-Einstellungen</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/einstellungen.php">⚙ Einstellungen</a>
+    <div class="asc-illus">
+      <?=$svgSettings?>
+      <div class="asc-body">
+        <h3>Software-Einstellungen</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/einstellungen.php">⚙ Einstellungen</a>
+        </div>
+        <div class="small">Logo, Akzentfarben und Rollenbezeichnungen anpassen.</div>
+      </div>
     </div>
-    <div class="small">Logo, Akzentfarben und Rollenbezeichnungen anpassen.</div>
   </div>
   <div class="admin-section-card" style="grid-column:1/-1">
-    <h3>Wartung</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/backup.php">💾 Backup</a>
-      <a class="btn" href="<?=h($base)?>/admin/logininfo.php">🔐 Login-Infos</a>
-      <a class="btn" href="<?=h($base)?>/admin/sysinfo.php">🖥️ Systeminfo</a>
+    <div class="asc-illus">
+      <?=$svgWrench?>
+      <div class="asc-body">
+        <h3>Wartung</h3>
+        <div class="admin-btn-row">
+          <a class="btn" href="<?=h($base)?>/admin/backup.php">💾 Backup</a>
+          <a class="btn" href="<?=h($base)?>/admin/logininfo.php">🔐 Login-Infos</a>
+          <a class="btn" href="<?=h($base)?>/admin/sysinfo.php">🖥️ Systeminfo</a>
+        </div>
+      </div>
     </div>
   </div>
   <?php endif; ?>
 
-  <?php if ($isAdmin): ?>
-  <div class="admin-section-card" style="grid-column:1/-1;border:1.5px dashed var(--border);background:#faf8f5">
-    <h3>🧪 Experimentell</h3>
-    <div class="admin-btn-row">
-      <a class="btn" href="<?=h($base)?>/admin/planer.php">🎼 Konzertplaner</a>
-    </div>
-    <div class="small">Kombinierte Ansicht aus Bibliothek und Abstimmungstiteln mit Zeitkalkulation.</div>
-  </div>
-  <?php endif; ?>
 
 </div>
 

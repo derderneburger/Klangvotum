@@ -33,6 +33,7 @@
 - `app_settings` — Key-Value-Tabelle für Runtime-Konfiguration
 - Soft-Delete-Pattern: `deleted_at` Spalte statt echtem Löschen (Konzerte, Abstimmungstitel, Bibliothek)
 - `sv_ensure_schema()` in `lib/db.php` erstellt alle Tabellen automatisch
+- Zentrale Tabellen: `users`, `songs`, `pieces`, `votes`, `vote_history`, `concerts`, `concert_pieces`, `concert_plans`, `concert_plan_items`, `piece_loans`, `piece_suggestions`, `tags`/`piece_tags`/`song_tags`, `app_settings`, `audit_log`
 
 ### Genre-System (Tags)
 - **Technisch** 3 Tabellen: `tags`, `piece_tags`, `song_tags` (Many-to-Many)
@@ -146,6 +147,22 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 
 ### Bibliothek-Merge (`admin/bibliothek_merge.php`)
 - Nutzt `$accentRed` für Diff-Pfeile (PHP + JavaScript)
+
+### Konzertplaner (`admin/planer.php`)
+- Plant Konzertprogramme aus Abstimmungstiteln (`songs`) und Bibliothek (`pieces`)
+- Mehrere Pläne mit Varianten (A/B/…), duplizierbar
+- Zwei-Spalten-Layout: links Quell-Tabellen (Suche, Score, Genre, Dauer), rechts der Plan
+- AJAX-basiert: add_item, remove_item, reorder (Drag & Drop), update_item, park_item, unpark_item, remove_parked
+- **Item-Typen** (`concert_plan_items.item_type` ENUM):
+  - `piece` — normales Stück (aus songs oder pieces, via `source`-Spalte)
+  - `block` — freier Textblock mit Label + Dauer (z.B. Pause, Ansprache)
+  - `halftime` — Separator "── Halbzeit ──", max. 1 pro Plan
+  - `zugabe` — Separator "── Zugaben ──", max. 1 pro Plan, Stücke danach zählen nicht zur Gesamtzeit
+  - `parked` — in die Ablage verschoben (position=0, unterhalb des Plans)
+- **WICHTIG**: Beim Erweitern des ENUMs immer alle bestehenden Werte beibehalten + Migration in `sv_ensure_schema()` ergänzen. Ungültige ENUM-Werte werden ohne Strict-Mode still als `''` gespeichert → kaputte Renderings
+- Zeitsummen live: 1. Hälfte / 2. Hälfte / Gesamt / Zugaben / Stückzahl
+- Parken statt Löschen: Stücke aus dem Plan landen in der Ablage statt verloren zu gehen
+- Print-Export (`?export=print`): eigenständiges HTML im gleichen Stil wie concerts/bibliothek
 
 ## Dateistruktur
 

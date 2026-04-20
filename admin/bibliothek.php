@@ -722,7 +722,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
       <?php foreach ($pieces as $p):
         $pDel = !empty($p['deleted_at']);
       ?>
-      <div class="detail-list-row" data-id="<?=h($p['id'])?>" onclick="showDetail(this)"
+      <div class="detail-list-row" data-id="<?=h($p['id'])?>" data-search="<?=h(strtolower($p['title'].' '.($p['composer']??'').' '.($p['arranger']??'')))?>" onclick="showDetail(this)"
            style="padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer<?php if($pDel): ?>;border-left:3px solid var(--red)<?php elseif(!empty($p['loaned_to'])): ?>;background:#fff3e0;border-left:4px solid #e65100<?php endif; ?>">
         <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?php if($pDel): ?>🗑 <?php elseif(!empty($p['loaned_to'])): ?>📦 <?php endif; ?><?=h($p['title'])?></div>
         <div class="small" style="color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -731,7 +731,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
       </div>
       <?php endforeach; ?>
     </div>
-    <div id="detail-panel" class="card" style="min-height:300px">
+    <div id="detail-panel" class="card" style="min-height:300px;position:sticky;top:100px">
       <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--muted);font-size:14px">← Stück auswählen</div>
     </div>
   </div>
@@ -998,15 +998,22 @@ function bibCol(name, show) {
 <script>
 function bibFilter() {
   var inp   = document.getElementById('bib-live-q');
-  var tbody = document.getElementById('bib-tbody');
-  if (!tbody) return;
   var q = inp ? inp.value.toLowerCase().trim() : '';
-  var rows = tbody.querySelectorAll('tr[data-search]');
   var vis = 0;
-  rows.forEach(function(tr) {
-    var ok = !q || tr.dataset.search.indexOf(q) !== -1;
-    tr.style.display = ok ? '' : 'none';
-    if (ok) vis++;
+  // Tabellen-Ansicht
+  var tbody = document.getElementById('bib-tbody');
+  if (tbody) {
+    tbody.querySelectorAll('tr[data-search]').forEach(function(tr) {
+      var ok = !q || tr.dataset.search.indexOf(q) !== -1;
+      tr.style.display = ok ? '' : 'none';
+      if (ok) vis++;
+    });
+  }
+  // Detail-Ansicht
+  document.querySelectorAll('.detail-list-row[data-search]').forEach(function(row) {
+    var ok = !q || row.dataset.search.indexOf(q) !== -1;
+    row.style.display = ok ? '' : 'none';
+    if (!tbody) { if (ok) vis++; }
   });
   var ct = document.getElementById('bib-count');
   if (ct) ct.textContent = vis + ' Titel';

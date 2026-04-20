@@ -5,6 +5,7 @@ require_once __DIR__ . '/lib/layout.php';
 $user   = sv_require_login();
 $pdo    = sv_pdo();
 $frozen = sv_is_frozen();
+$frozenReason = $frozen ? sv_frozen_reason() : 'none';
 
 // Anzeigeeinstellungen laden
 $displayFieldsRaw = '';
@@ -87,7 +88,13 @@ sv_header('Abstimmen', $user);
 
 <?php if($frozen): ?>
 <div class="freeze-banner" style="margin-bottom:16px">
-  🔒 <span><strong>Abstimmung ist geschlossen.</strong> Du kannst deine Stimmen sehen, aber nichts mehr ändern.</span>
+  🔒 <span>
+    <?php if($frozenReason === 'deadline'): ?>
+      <strong>Abstimmungsfrist abgelaufen.</strong> Die Deadline wurde erreicht — du kannst deine Stimmen sehen, aber nichts mehr ändern.
+    <?php else: ?>
+      <strong>Abstimmung ist geschlossen.</strong> Du kannst deine Stimmen sehen, aber nichts mehr ändern.
+    <?php endif; ?>
+  </span>
 </div>
 <?php endif; ?>
 
