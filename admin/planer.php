@@ -367,7 +367,7 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
     <tbody>
     <?php $nr = 1; foreach ($planItems as $it): ?>
       <?php if ($it['item_type'] === 'halftime'): ?>
-        <tr class="halftime-row"><td colspan="4">Halbzeit</td></tr>
+        <tr class="halftime-row"><td colspan="4">Pause</td></tr>
       <?php elseif ($it['item_type'] === 'zugabe'): ?>
         <tr class="halftime-row" style="background:#fff7ed;border-top:2px solid #d97706;border-bottom:2px solid #d97706"><td colspan="4" style="color:#b45309">Zugaben</td></tr>
       <?php elseif ($it['item_type'] === 'block'): ?>
@@ -637,7 +637,7 @@ sv_header('Konzertplaner', $admin);
           <?php if ($it['item_type'] === 'halftime'): ?>
             <div class="plan-item plan-halftime" data-item-id="<?=$it['id']?>" data-type="halftime" data-duration="0" draggable="true">
               <span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>
-              <div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:var(--muted)">── Halbzeit ──</div>
+              <div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:var(--muted)">── Pause ──</div>
               <button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(<?=$it['id']?>)">×</button>
             </div>
           <?php elseif ($it['item_type'] === 'zugabe'): ?>
@@ -678,7 +678,7 @@ sv_header('Konzertplaner', $admin);
       <!-- Insert-Buttons -->
       <div style="display:flex;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
         <button class="btn" style="font-size:12px" onclick="addBlockDialog()">+ Block</button>
-        <button class="btn" style="font-size:12px" id="btn-halftime" onclick="addHalftime()" <?= $hasHalftime ? 'disabled style="font-size:12px;opacity:.3;pointer-events:none"' : '' ?>>+ Halbzeit</button>
+        <button class="btn" style="font-size:12px" id="btn-halftime" onclick="addHalftime()" <?= $hasHalftime ? 'disabled style="font-size:12px;opacity:.3;pointer-events:none"' : '' ?>>+ Pause</button>
         <button class="btn" style="font-size:12px" id="btn-zugabe" onclick="addZugabe()" <?= $hasZugabe ? 'disabled style="font-size:12px;opacity:.3;pointer-events:none"' : '' ?>>+ Zugaben</button>
       </div>
 
@@ -1157,7 +1157,7 @@ function escAttr(s) {
 function addHalftime() {
   planPost('add_item', { item_type: 'halftime' }, function(data) {
     if (!data.ok) {
-      if (data.error === 'halftime_exists') alert('Es gibt bereits eine Halbzeit in diesem Plan.');
+      if (data.error === 'halftime_exists') alert('Es gibt bereits eine Pause in diesem Plan.');
       return;
     }
     var emptyEl = document.getElementById('plan-empty');
@@ -1171,7 +1171,7 @@ function addHalftime() {
     el.dataset.duration = '0';
     el.innerHTML =
       '<span class="drag-handle" style="cursor:grab;color:var(--muted);font-size:14px;padding:0 6px">☰</span>' +
-      '<div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:var(--muted)">── Halbzeit ──</div>' +
+      '<div style="flex:1;text-align:center;font-weight:700;letter-spacing:.05em;color:var(--muted)">── Pause ──</div>' +
       '<button class="btn" style="padding:2px 8px;font-size:12px;color:var(--red)" onclick="removeItem(' + data.item_id + ')">×</button>';
     document.getElementById('plan-list').appendChild(el);
     initDrag(el);
