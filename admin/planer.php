@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $old->execute([$planId]);
       $old = $old->fetch();
       if ($old) {
-        $stmt = $pdo->prepare("INSERT INTO concert_plans (name, variant, user_id) VALUES (?, ?, ?)");
-        $stmt->execute([$old['name'], $newVariant, $admin['id']]);
+        $stmt = $pdo->prepare("INSERT INTO concert_plans (name, variant, user_id, notes) VALUES (?, ?, ?, ?)");
+        $stmt->execute([$old['name'], $newVariant, $admin['id'], $old['notes'] ?? null]);
         $newId = $pdo->lastInsertId();
         // Items kopieren
         $items = $pdo->prepare("SELECT * FROM concert_plan_items WHERE plan_id = ? ORDER BY position ASC");
@@ -195,6 +195,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     echo '{"ok":true}';
     exit;
 
+  // ── Plan-Notizen speichern (AJAX) ──
+  } elseif ($action === 'update_notes') {
+    $planId = (int)($_POST['plan_id'] ?? 0);
+    $notes  = (string)($_POST['notes'] ?? '');
+    if ($planId) {
+      $pdo->prepare("UPDATE concert_plans SET notes = ?, updated_at = NOW() WHERE id = ?")
+          ->execute([$notes !== '' ? $notes : null, $planId]);
+    }
+    header('Content-Type: application/json');
+    echo '{"ok":true}';
+    exit;
+
   // ── Block bearbeiten (AJAX) ──
   } elseif ($action === 'update_item') {
     $itemId = (int)($_POST['item_id'] ?? 0);
@@ -326,6 +338,9 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
   .halftime-row td { text-align:center; font-weight:700; font-size:10pt; letter-spacing:.05em; border-top:2px solid #333; border-bottom:2px solid #333; padding:8px; background:#f5f2ee; }
   .block-row td { color:#666; font-style:italic; }
   .time-summary { margin-top:8mm; padding:10px 14px; border:1.5px solid <?=$accentRed?>; border-radius:8px; font-size:10pt; }
+  .notes-box { margin-top:6mm; padding:10px 14px; border:1px solid #ddd; border-radius:8px; background:#faf8f5; font-size:10pt; line-height:1.5; }
+  .notes-label { font-size:8pt; text-transform:uppercase; letter-spacing:.05em; color:<?=$accentRed?>; font-weight:700; margin-bottom:4px; }
+  .notes-body { color:#333; }
   .time-summary strong { color:<?=$accentRed?>; }
   .time-grid { display:flex; gap:24px; flex-wrap:wrap; }
   .time-item { display:flex; flex-direction:column; }
@@ -405,6 +420,12 @@ if ($planId && $currentPlan && isset($_GET['export']) && $_GET['export'] === 'pr
       <div class="time-item"><span class="time-label">Stücke</span><span class="time-val"><?=$pieceCount?></span></div>
     </div>
   </div>
+  <?php if (!empty($currentPlan['notes'])): ?>
+  <div class="notes-box">
+    <div class="notes-label">Bemerkungen</div>
+    <div class="notes-body"><?=nl2br(h($currentPlan['notes']))?></div>
+  </div>
+  <?php endif; ?>
   <div class="footer">Erstellt am <?=date('d.m.Y')?> · KlangVotum · <?=h($org)?></div>
 </div>
 </body></html>
@@ -729,6 +750,15 @@ sv_header('Konzertplaner', $admin);
             <div style="font-family:'Fraunces',serif;font-size:1.3rem;font-weight:700;color:var(--green)" id="time-count">0</div>
           </div>
         </div>
+      </div>
+
+      <!-- Bemerkungen -->
+      <div style="margin-top:12px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label for="plan-notes" style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Bemerkungen</label>
+          <span id="notes-status" class="small" style="color:var(--muted);font-size:11px"></span>
+        </div>
+        <textarea id="plan-notes" class="input" rows="4" style="width:100%;resize:vertical;font-family:inherit;font-size:13px" placeholder="Hinweise, Moderationen, Ansagen, ToDos … (wird im Ausdruck mit ausgegeben)"><?=h($currentPlan['notes'] ?? '')?></textarea>
       </div>
 
     </div>
@@ -1424,6 +1454,43 @@ function saveOrder() {
       var search = tr.dataset.search || '';
       tr.style.display = !query || search.indexOf(query) >= 0 ? '' : 'none';
     });
+  });
+})();
+
+// ── Bemerkungen (Auto-Save mit Debounce) ─────────────────────────────────────
+(function() {
+  var ta = document.getElementById('plan-notes');
+  if (!ta) return;
+  var status = document.getElementById('notes-status');
+  var timer = null;
+  var lastSaved = ta.value;
+  function setStatus(txt, color) {
+    if (!status) return;
+    status.textContent = txt;
+    status.style.color = color || 'var(--muted)';
+  }
+  function save() {
+    if (ta.value === lastSaved) return;
+    var val = ta.value;
+    setStatus('Speichern …');
+    planPost('update_notes', { notes: val }, function(data) {
+      if (data && data.ok) {
+        lastSaved = val;
+        setStatus('✓ Gespeichert', 'var(--green)');
+        setTimeout(function() { if (status.textContent === '✓ Gespeichert') setStatus(''); }, 1500);
+      } else {
+        setStatus('Fehler beim Speichern', 'var(--red)');
+      }
+    });
+  }
+  ta.addEventListener('input', function() {
+    if (timer) clearTimeout(timer);
+    setStatus('…');
+    timer = setTimeout(save, 800);
+  });
+  ta.addEventListener('blur', function() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    save();
   });
 })();
 

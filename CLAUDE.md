@@ -162,6 +162,7 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 - **WICHTIG**: Beim Erweitern des ENUMs immer alle bestehenden Werte beibehalten + Migration in `sv_ensure_schema()` ergänzen. Ungültige ENUM-Werte werden ohne Strict-Mode still als `''` gespeichert → kaputte Renderings
 - Zeitsummen live: 1. Hälfte / 2. Hälfte / Gesamt / Zugaben / Stückzahl
 - Parken statt Löschen: Stücke aus dem Plan landen in der Ablage statt verloren zu gehen
+- Bemerkungen: freies Textfeld pro Plan (`concert_plans.notes`), Auto-Save mit Debounce on input/blur, wird beim Duplizieren mitkopiert und im Print-Export ausgegeben
 - Print-Export (`?export=print`): eigenständiges HTML im gleichen Stil wie concerts/bibliothek
 
 ## Dateistruktur

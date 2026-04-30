@@ -259,12 +259,19 @@ function sv_ensure_schema(PDO $pdo): void {
         name        VARCHAR(255) NOT NULL,
         variant     VARCHAR(100) NOT NULL DEFAULT 'A',
         user_id     INT NOT NULL,
+        notes       TEXT NULL,
         created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
         KEY idx_cplans_user (user_id),
         KEY idx_cplans_name (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // Migration: notes-Spalte fuer bestehende Installationen
+    $cplanCols = array_column($pdo->query("SHOW COLUMNS FROM concert_plans")->fetchAll(), 'Field');
+    if (!in_array('notes', $cplanCols)) {
+      $pdo->exec("ALTER TABLE concert_plans ADD COLUMN notes TEXT NULL AFTER user_id");
+    }
 
     // ── v2: concert_plan_items — Eintraege in einem Konzertplan ─────────────────
     $pdo->exec("CREATE TABLE IF NOT EXISTS concert_plan_items (
