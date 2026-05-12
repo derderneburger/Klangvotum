@@ -215,23 +215,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'delete') {
     $sid = (int)($_POST['sid'] ?? 0);
     if ($isAdmin) {
-      // Admin: Hard-Delete mit Vote-Archivierung
-      $songCheck = $pdo->prepare("SELECT piece_id FROM songs WHERE id=?");
-      $songCheck->execute([$sid]);
-      $songRow = $songCheck->fetch();
-      if ($songRow && $songRow['piece_id']) {
-        $pdo->prepare("
-          INSERT INTO vote_history (user_id, piece_id, vote, note, archived_at)
-          SELECT v.user_id, ?, v.vote, vn.note, NOW()
-          FROM votes v
-          LEFT JOIN vote_notes vn ON vn.song_id = v.song_id AND vn.user_id = v.user_id
-          WHERE v.song_id = ?
-          ON DUPLICATE KEY UPDATE vote=VALUES(vote), note=VALUES(note), archived_at=NOW()
-        ")->execute([$songRow['piece_id'], $sid]);
+      // Prüfen ob der Song in Konzertplänen verwendet wird
+      $inPlans = $pdo->prepare("
+        SELECT DISTINCT cp.name AS plan_name
+        FROM concert_plan_items cpi
+        JOIN concert_plans cp ON cp.id = cpi.plan_id
+        WHERE cpi.source='song' AND cpi.piece_id=?
+      ");
+      $inPlans->execute([$sid]);
+      $planNames = array_column($inPlans->fetchAll(), 'plan_name');
+      if (!empty($planNames)) {
+        sv_flash_set('error', 'Titel kann nicht gelöscht werden — wird in folgenden Konzertplänen verwendet: ' . implode(', ', $planNames) . '. Bitte zuerst dort entfernen.');
+      } else {
+        // Admin: Hard-Delete mit Vote-Archivierung
+        $songCheck = $pdo->prepare("SELECT piece_id FROM songs WHERE id=?");
+        $songCheck->execute([$sid]);
+        $songRow = $songCheck->fetch();
+        if ($songRow && $songRow['piece_id']) {
+          $pdo->prepare("
+            INSERT INTO vote_history (user_id, piece_id, vote, note, archived_at)
+            SELECT v.user_id, ?, v.vote, vn.note, NOW()
+            FROM votes v
+            LEFT JOIN vote_notes vn ON vn.song_id = v.song_id AND vn.user_id = v.user_id
+            WHERE v.song_id = ?
+            ON DUPLICATE KEY UPDATE vote=VALUES(vote), note=VALUES(note), archived_at=NOW()
+          ")->execute([$songRow['piece_id'], $sid]);
+        }
+        $pdo->prepare("DELETE FROM songs WHERE id=?")->execute([$sid]);
+        sv_log($user['id'], 'song_delete', "song_id=$sid");
+        sv_flash_set('success', 'Titel endgültig gelöscht.');
       }
-      $pdo->prepare("DELETE FROM songs WHERE id=?")->execute([$sid]);
-      sv_log($user['id'], 'song_delete', "song_id=$sid");
-      sv_flash_set('success', 'Titel endgültig gelöscht.');
     } else {
       // Noten-Rolle: Soft-Delete mit Grund
       $reason = trim($_POST['delete_reason'] ?? '');

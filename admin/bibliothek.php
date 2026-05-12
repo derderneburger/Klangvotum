@@ -179,10 +179,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $pid = (int)($_POST['pid'] ?? 0);
     if ($pid > 0) {
       if ($isAdmin) {
-        // Admin: Hard-Delete
-        $pdo->prepare("DELETE FROM pieces WHERE id=?")->execute([$pid]);
-        sv_log($user['id'], 'piece_delete', "pid=$pid");
-        sv_flash_set('success', 'Stück endgültig gelöscht.');
+        // Prüfen ob das Piece in Konzertplänen verwendet wird
+        $inPlans = $pdo->prepare("
+          SELECT DISTINCT cp.name AS plan_name
+          FROM concert_plan_items cpi
+          JOIN concert_plans cp ON cp.id = cpi.plan_id
+          WHERE cpi.source='piece' AND cpi.piece_id=?
+        ");
+        $inPlans->execute([$pid]);
+        $planNames = array_column($inPlans->fetchAll(), 'plan_name');
+        if (!empty($planNames)) {
+          sv_flash_set('error', 'Stück kann nicht gelöscht werden — es wird in folgenden Konzertplänen verwendet: ' . implode(', ', $planNames) . '. Bitte zuerst dort entfernen.');
+        } else {
+          // Admin: Hard-Delete
+          $pdo->prepare("DELETE FROM pieces WHERE id=?")->execute([$pid]);
+          sv_log($user['id'], 'piece_delete', "pid=$pid");
+          sv_flash_set('success', 'Stück endgültig gelöscht.');
+        }
       } else {
         // Noten-Rolle: Soft-Delete mit Grund
         $reason = trim($_POST['delete_reason'] ?? '');

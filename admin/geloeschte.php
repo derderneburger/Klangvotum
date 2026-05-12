@@ -22,9 +22,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'delete_piece') {
     $pid = (int)($_POST['pid'] ?? 0);
     if ($pid > 0) {
-      $pdo->prepare("DELETE FROM pieces WHERE id=?")->execute([$pid]);
-      sv_log($user['id'], 'piece_permanent_delete', "pid=$pid");
-      sv_flash_set('success', 'Stück endgültig gelöscht.');
+      $inPlans = $pdo->prepare("
+        SELECT DISTINCT cp.name AS plan_name
+        FROM concert_plan_items cpi
+        JOIN concert_plans cp ON cp.id = cpi.plan_id
+        WHERE cpi.source='piece' AND cpi.piece_id=?
+      ");
+      $inPlans->execute([$pid]);
+      $planNames = array_column($inPlans->fetchAll(), 'plan_name');
+      if (!empty($planNames)) {
+        sv_flash_set('error', 'Stück kann nicht endgültig gelöscht werden — wird in folgenden Konzertplänen verwendet: ' . implode(', ', $planNames) . '.');
+      } else {
+        $pdo->prepare("DELETE FROM pieces WHERE id=?")->execute([$pid]);
+        sv_log($user['id'], 'piece_permanent_delete', "pid=$pid");
+        sv_flash_set('success', 'Stück endgültig gelöscht.');
+      }
     }
 
   // ── Abstimmungstitel ──
@@ -38,23 +50,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   } elseif ($action === 'delete_song') {
     $sid = (int)($_POST['sid'] ?? 0);
     if ($sid > 0) {
-      // Vote-Archivierung bei piece_id
-      $songCheck = $pdo->prepare("SELECT piece_id FROM songs WHERE id=?");
-      $songCheck->execute([$sid]);
-      $songRow = $songCheck->fetch();
-      if ($songRow && $songRow['piece_id']) {
-        $pdo->prepare("
-          INSERT INTO vote_history (user_id, piece_id, vote, note, archived_at)
-          SELECT v.user_id, ?, v.vote, vn.note, NOW()
-          FROM votes v
-          LEFT JOIN vote_notes vn ON vn.song_id = v.song_id AND vn.user_id = v.user_id
-          WHERE v.song_id = ?
-          ON DUPLICATE KEY UPDATE vote=VALUES(vote), note=VALUES(note), archived_at=NOW()
-        ")->execute([$songRow['piece_id'], $sid]);
+      $inPlans = $pdo->prepare("
+        SELECT DISTINCT cp.name AS plan_name
+        FROM concert_plan_items cpi
+        JOIN concert_plans cp ON cp.id = cpi.plan_id
+        WHERE cpi.source='song' AND cpi.piece_id=?
+      ");
+      $inPlans->execute([$sid]);
+      $planNames = array_column($inPlans->fetchAll(), 'plan_name');
+      if (!empty($planNames)) {
+        sv_flash_set('error', 'Titel kann nicht endgültig gelöscht werden — wird in folgenden Konzertplänen verwendet: ' . implode(', ', $planNames) . '.');
+      } else {
+        // Vote-Archivierung bei piece_id
+        $songCheck = $pdo->prepare("SELECT piece_id FROM songs WHERE id=?");
+        $songCheck->execute([$sid]);
+        $songRow = $songCheck->fetch();
+        if ($songRow && $songRow['piece_id']) {
+          $pdo->prepare("
+            INSERT INTO vote_history (user_id, piece_id, vote, note, archived_at)
+            SELECT v.user_id, ?, v.vote, vn.note, NOW()
+            FROM votes v
+            LEFT JOIN vote_notes vn ON vn.song_id = v.song_id AND vn.user_id = v.user_id
+            WHERE v.song_id = ?
+            ON DUPLICATE KEY UPDATE vote=VALUES(vote), note=VALUES(note), archived_at=NOW()
+          ")->execute([$songRow['piece_id'], $sid]);
+        }
+        $pdo->prepare("DELETE FROM songs WHERE id=?")->execute([$sid]);
+        sv_log($user['id'], 'song_permanent_delete', "song_id=$sid");
+        sv_flash_set('success', 'Abstimmungstitel endgültig gelöscht.');
       }
-      $pdo->prepare("DELETE FROM songs WHERE id=?")->execute([$sid]);
-      sv_log($user['id'], 'song_permanent_delete', "song_id=$sid");
-      sv_flash_set('success', 'Abstimmungstitel endgültig gelöscht.');
     }
 
   // ── Chronik ──
