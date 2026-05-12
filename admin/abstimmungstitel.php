@@ -166,6 +166,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 WHERE v.song_id = ?
                 ON DUPLICATE KEY UPDATE vote=VALUES(vote), note=VALUES(note), archived_at=NOW()
               ")->execute([$pieceId, $sid]);
+              // Konzertplaner-Items umhängen: aus Song wird Piece
+              $pdo->prepare("UPDATE concert_plan_items SET source='piece', piece_id=? WHERE source='song' AND piece_id=?")->execute([$pieceId, $sid]);
               $pdo->prepare("DELETE FROM songs WHERE id=?")->execute([$sid]);
               sv_log($user['id'], 'song_to_archive', "song_id=$sid piece_id=$pieceId linked");
               sv_flash_set('success', '„'.$s['title'].'" mit Archiv verknüpft und aus Abstimmung entfernt.');
@@ -195,6 +197,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 WHERE v.song_id = ?
                 ON DUPLICATE KEY UPDATE vote=VALUES(vote), note=VALUES(note), archived_at=NOW()
               ")->execute([$pieceId, $sid]);
+              // Konzertplaner-Items umhängen: aus Song wird Piece
+              $pdo->prepare("UPDATE concert_plan_items SET source='piece', piece_id=? WHERE source='song' AND piece_id=?")->execute([$pieceId, $sid]);
               // Song löschen (votes/notes werden durch DB-Cascade oder einfach obsolet)
               $pdo->prepare("DELETE FROM songs WHERE id=?")->execute([$sid]);
               sv_log($user['id'], 'song_to_archive', "song_id=$sid piece_id=$pieceId");
