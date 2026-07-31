@@ -87,7 +87,15 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 - Beim **Anlegen**: Prüfung gegen `pieces` UND `songs` (verhindert Doppel-Einträge)
 - Beim **Bearbeiten**: Prüfung nur gegen `pieces` (Songs-Prüfung übersprungen, da das Stück bereits verknüpft sein kann)
 
-### Bibliothek Performance (geteilte Dialoge)
+### Geteilte Dialoge (Performance-Muster — mehrere Seiten)
+**Grundregel: niemals einen Dialog pro Tabellenzeile rendern.** Stattdessen ein geteilter Dialog pro Typ, per JS aus einem JSON-Objekt befüllt. Besonders teuer sind Formulare mit `sv_tag_widget()`, weil das die komplette Tag-Liste in ZWEI Dropdowns rendert. Umgesetzt in:
+- `admin/bibliothek.php` → `BIB_FORM_DATA`, `openPieceDialog/openLoanDialog/openSoftdelDialog`
+- `admin/abstimmungstitel.php` → `SONG_FORM_DATA`, `openSongDialog/openSongSoftdelDialog` (Besonderheit: `_resetYtRequired()` setzt die YouTube-Pflicht zurück, sonst leckt ein zuvor gesetztes `yt_optional` in den nächsten Titel)
+- `admin/concerts.php` → `CONCERT_FORM_DATA`, `openConcertDialog/openConcertSoftdelDialog` (das ausgewählte Konzert wird zusätzlich in die Daten aufgenommen, weil es bei aktiver Suche außerhalb der Liste liegen kann)
+
+Gemeinsames Vorgehen: Trigger-Buttons behalten ihre alten IDs (`data-open-dialog="dialog-edit-<id>"`), der Klick-Handler leitet sie per Regex auf den geteilten Dialog um. Formular-Helper werden mit leeren Daten aufgerufen; beim Öffnen füllt JS die Felder, baut Genre-Chips über `_svAddChip`/`svGenreRefresh` neu auf und setzt Duplikat-Hinweis + Submit-Sperre zurück. **Beim Ergänzen neuer Formularfelder: sowohl das PHP-Daten-Array als auch die JS-Füllfunktion nachziehen.**
+
+### Bibliothek Performance (Details)
 - `admin/bibliothek.php` rendert **einen** geteilten Bearbeiten/Vorschlag-Dialog (`dialog-piece-form`), einen Verleihen- (`dialog-loan`) und einen Soft-Delete-Dialog (`dialog-softdel`) — NICHT einen pro Zeile (früher 251× → extrem langsames DOM)
 - Stück-Daten liegen als JSON in `BIB_FORM_DATA` (per `json_encode` mit HEX-Flags); `openPieceDialog(id)` / `openLoanDialog(id)` / `openSoftdelDialog(id)` befüllen die Dialoge per JS
 - Die Trigger-Buttons behalten ihre alten IDs (`data-open-dialog="dialog-edit-<id>"` etc.) — der Klick-Handler leitet sie per Regex auf die geteilten Dialoge um. Beim Erweitern: neue Stück-Felder in `$bibFormData` UND in `openPieceDialog()` ergänzen

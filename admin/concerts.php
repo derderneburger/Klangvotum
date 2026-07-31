@@ -18,7 +18,8 @@ function concertFormHtml(array $con = null, string $action): string {
   $cancelled = !empty($con['cancelled']) ? 'checked' : '';
   $csrf      = htmlspecialchars(sv_csrf_token(), ENT_QUOTES);
   $btn       = $action === 'create' ? 'Anlegen' : 'Speichern';
-  $cidF      = $cid ? '<input type="hidden" name="cid" value="' . $cid . '">' : '';
+  // Beim Update-Formular immer ein cid-Feld ausgeben — der geteilte Dialog befüllt es per JS
+  $cidF      = ($cid || $action !== 'create') ? '<input type="hidden" name="cid" value="' . $cid . '">' : '';
   return '<form method="post" class="grid" style="gap:12px">'
     . '<input type="hidden" name="csrf" value="' . $csrf . '">'
     . '<input type="hidden" name="action" value="' . $action . '">'
@@ -515,6 +516,23 @@ function concertDate(array $c): string {
   return '';
 }
 
+// Formulardaten aller Auftritte als JSON für die geteilten Dialoge
+// (ein Bearbeiten/Löschen-Dialog statt einem pro Zeile — Performance)
+$concertFormData = [];
+// Das ausgewählte Konzert mit aufnehmen — bei aktiver Suche kann es außerhalb der Liste liegen,
+// der Bearbeiten-Button im Detail-Bereich braucht seine Daten trotzdem
+$formDataSource = $concerts;
+if ($selected) $formDataSource[] = $selected;
+foreach ($formDataSource as $c) {
+  $concertFormData[(int)$c['id']] = [
+    'name'      => (string)$c['name'],
+    'date'      => (string)($c['date'] ?? ''),
+    'location'  => (string)($c['location'] ?? ''),
+    'notes'     => (string)($c['notes'] ?? ''),
+    'cancelled' => !empty($c['cancelled']) ? 1 : 0,
+  ];
+}
+
 // ── Ausgabe ────────────────────────────────────────────────────────────────────
 sv_header('Auftrittchronik', $user);
 ?>
@@ -602,45 +620,6 @@ sv_header('Auftrittchronik', $user);
           <?php endif; ?>
           <?php if($cIsDeleted): ?><div style="width:100%;order:99"><a href="<?=h($base)?>/admin/geloeschte.php" class="badge" style="background:var(--red-soft);color:var(--red);border-color:rgba(193,9,15,.3);font-size:11px;text-decoration:none">🗑 Löschung vorgemerkt</a></div><?php endif; ?>
         </div>
-        <dialog id="dlg-edit-<?=h($c['id'])?>" class="sv-dialog">
-          <div class="sv-dialog__panel" tabindex="-1">
-            <div class="sv-dialog__head">
-              <div class="sv-dialog__title">Auftritt bearbeiten</div>
-              <button class="sv-dialog__close" type="button" data-close-dialog>✕</button>
-            </div>
-            <div class="sv-dialog__section"><?=concertFormHtml($c,'update')?></div>
-          </div>
-        </dialog>
-        <?php if ($canEdit && !$isAdmin): ?>
-        <dialog id="dlg-softdel-<?=h($c['id'])?>" class="sv-dialog">
-          <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
-            <div class="sv-dialog__head">
-              <div>
-                <div class="sv-dialog__title">Auftritt löschen</div>
-                <div class="sv-dialog__sub"><?=h($c['name'])?></div>
-              </div>
-              <button class="sv-dialog__close" type="button" data-close-dialog>✕</button>
-            </div>
-            <div class="sv-dialog__section">
-              <div class="small" style="background:var(--red-soft);border:1px solid rgba(193,9,15,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:var(--red)">
-                Dieser Auftritt wird zur Prüfung als gelöscht markiert. Der Admin kann ihn wiederherstellen oder endgültig löschen.
-              </div>
-              <form method="post">
-                <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="cid" value="<?=h($c['id'])?>">
-                <label style="display:block;margin-bottom:16px">Grund <span style="color:var(--red)">*</span><br>
-                  <input class="input" type="text" name="delete_reason" required placeholder="z.B. Doppelter Eintrag, falsches Datum" style="width:100%;margin-top:5px">
-                </label>
-                <div style="display:flex;gap:8px;justify-content:flex-end">
-                  <button class="btn" type="submit" style="color:var(--red)">🗑 Als gelöscht markieren</button>
-                  <button class="btn" type="button" data-close-dialog>Abbrechen</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </dialog>
-        <?php endif; ?>
       <?php endforeach; ?>
     </div>
   </div>
@@ -823,6 +802,87 @@ sv_header('Auftrittchronik', $user);
   </div>
 </dialog>
 
+<?php if ($canEdit): ?>
+<!-- Geteilter Bearbeiten-Dialog — wird per JS mit den Daten des Auftritts befüllt -->
+<dialog id="dialog-concert-form" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">Auftritt bearbeiten</div>
+        <div class="sv-dialog__sub" id="concert-form-sub"></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog>✕</button>
+    </div>
+    <div class="sv-dialog__section"><?=concertFormHtml(null,'update')?></div>
+  </div>
+</dialog>
+
+<?php if (!$isAdmin): ?>
+<!-- Geteilter Löschen-Dialog (Soft-Delete) -->
+<dialog id="dialog-concert-softdel" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">Auftritt löschen</div>
+        <div class="sv-dialog__sub" id="concert-softdel-sub"></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog>✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <div class="small" style="background:var(--red-soft);border:1px solid rgba(193,9,15,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:var(--red)">
+        Dieser Auftritt wird zur Prüfung als gelöscht markiert. Der Admin kann ihn wiederherstellen oder endgültig löschen.
+      </div>
+      <form method="post">
+        <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="cid" value="">
+        <label style="display:block;margin-bottom:16px">Grund <span style="color:var(--red)">*</span><br>
+          <input class="input" type="text" name="delete_reason" required placeholder="z.B. Doppelter Eintrag, falsches Datum" style="width:100%;margin-top:5px">
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn" type="submit" style="color:var(--red)">🗑 Als gelöscht markieren</button>
+          <button class="btn" type="button" data-close-dialog>Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+<?php endif; ?>
+
+<script>
+// Daten aller Auftritte für die geteilten Dialoge
+var CONCERT_FORM_DATA = <?= json_encode($concertFormData, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}' ?>;
+
+function _openConcertDlg(dlg) {
+  if (!dlg.open) dlg.showModal();
+  var p = dlg.querySelector('.sv-dialog__panel'); if (p) p.focus();
+}
+
+function openConcertDialog(id) {
+  var d = CONCERT_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-concert-form');
+  if (!d || !dlg) return;
+  var f = dlg.querySelector('form');
+  var set = function(name, val) { var el = f.querySelector('[name="'+name+'"]'); if (el) el.value = (val == null ? '' : val); };
+  set('cid', id);
+  ['name','date','location','notes'].forEach(function(n){ set(n, d[n]); });
+  var cb = f.querySelector('[name="cancelled"]'); if (cb) cb.checked = !!d.cancelled;
+  var sub = document.getElementById('concert-form-sub'); if (sub) sub.textContent = d.name;
+  _openConcertDlg(dlg);
+}
+
+function openConcertSoftdelDialog(id) {
+  var d = CONCERT_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-concert-softdel');
+  if (!d || !dlg) return;
+  dlg.querySelector('input[name="cid"]').value = id;
+  var r = dlg.querySelector('input[name="delete_reason"]'); if (r) r.value = '';
+  var sub = document.getElementById('concert-softdel-sub'); if (sub) sub.textContent = d.name;
+  _openConcertDlg(dlg);
+}
+</script>
+<?php endif; ?>
+
 <!-- Stück Detail Dialog -->
 <dialog id="piece-detail-dlg" class="sv-dialog" style="width:min(500px,calc(100vw - 24px))">
   <div class="sv-dialog__panel" tabindex="-1">
@@ -873,7 +933,14 @@ function exportSelected() {
 // Dialoge
 document.addEventListener('click', function(e) {
   var o = e.target.closest('[data-open-dialog]');
-  if (o) { var d = document.getElementById(o.getAttribute('data-open-dialog')); if (d) d.showModal(); return; }
+  if (o) {
+    var id = o.getAttribute('data-open-dialog');
+    // Pro-Auftritt-IDs auf die geteilten Dialoge umleiten
+    var m;
+    if ((m = id.match(/^dlg-edit-(\d+)$/))    && typeof openConcertDialog === 'function')        { openConcertDialog(parseInt(m[1],10)); return; }
+    if ((m = id.match(/^dlg-softdel-(\d+)$/)) && typeof openConcertSoftdelDialog === 'function') { openConcertSoftdelDialog(parseInt(m[1],10)); return; }
+    var d = document.getElementById(id); if (d && !d.open) d.showModal(); return;
+  }
   var cl = e.target.closest('[data-close-dialog]');
   if (cl) { var d2 = cl.closest('dialog'); if (d2) d2.close(); }
 });
