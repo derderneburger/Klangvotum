@@ -494,7 +494,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
     <span style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">Spalten</span>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="bib-col-composer" onchange="bibCol('composer',this.checked);bibCol('arranger',this.checked)" checked> Komponist / Arrangeur</label>
-    <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="bib-col-genre"       onchange="bibCol('genre',this.checked)"       checked> Genre</label>
+    <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="bib-col-genre"       onchange="bibCol('genre',this.checked)"> Genre</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="bib-col-difficulty"  onchange="bibCol('difficulty',this.checked)"  checked> Grad</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="bib-col-duration"    onchange="bibCol('duration',this.checked)"    checked> Länge</label>
     <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;cursor:pointer"><input type="checkbox" id="bib-col-owner"       onchange="bibCol('owner',this.checked)"       checked> Eigentümer</label>
@@ -531,7 +531,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
           $stK = ($sortBy==='composer'?'color:var(--red)':'color:inherit').';cursor:pointer;user-select:none;display:block';
           $stA = ($sortBy==='arranger'?'color:var(--red)':'color:var(--muted)').';cursor:pointer;user-select:none;display:block;font-size:12px';
           echo '<th class="bib-col bib-col-composer bib-col-arranger" style="white-space:nowrap"><a href="?'.$qK.'" style="text-decoration:none;'.$stK.'">Komponist'.$icK.'</a><a href="?'.$qA.'" style="text-decoration:none;font-size:12px;'.$stA.'">Arrangeur'.$icA.'</a></th>';
-          echo sortTh('tags',       'Genre',           $sortBy,$sortDir,'bib-col bib-col-genre');
+          echo sortTh('tags',       'Genre',           $sortBy,$sortDir,'bib-col bib-col-genre col-hidden');
           echo sortTh('difficulty', 'Grad',  $sortBy,$sortDir,'bib-col bib-col-difficulty');
           echo sortTh('duration',   'Länge',          $sortBy,$sortDir,'bib-col bib-col-duration');
           echo sortTh('owner',      'Eigentümer',     $sortBy,$sortDir,'bib-col bib-col-owner');
@@ -565,7 +565,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
             <?=h($p['composer'] ?? '–')?>
             <?php if(!empty($p['arranger'])): ?><div style="color:var(--muted);font-size:12px">Arr. <?=h($p['arranger'])?></div><?php endif; ?>
           </td>
-          <td class="small bib-col bib-col-genre" style="white-space:nowrap"><?= sv_tag_badges($tagsByPiece[(int)$p['id']] ?? []) ?></td>
+          <td class="small bib-col bib-col-genre col-hidden" style="white-space:nowrap"><?= sv_tag_badges($tagsByPiece[(int)$p['id']] ?? []) ?></td>
           <td class="bib-col bib-col-difficulty" style="white-space:nowrap"><?=diffPill($p['difficulty'])?></td>
           <td class="small bib-col bib-col-duration" style="white-space:nowrap"><?=h($p['duration'] ?? '–')?></td>
           <td class="small bib-col bib-col-owner" style="white-space:nowrap">
