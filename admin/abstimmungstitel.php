@@ -306,6 +306,26 @@ $songIds = array_column($songs, 'id');
 $tagsBySong = sv_tags_for_songs($songIds);
 $allTagsForForm = sv_all_tags();
 
+// Formulardaten aller Titel als JSON für die geteilten Dialoge
+// (ein Bearbeiten/Löschen-Dialog statt einem pro Zeile — Performance)
+$songFormData = [];
+foreach ($songs as $s) {
+  $songFormData[(int)$s['id']] = [
+    'title'       => (string)$s['title'],
+    'youtube_url' => (string)($s['youtube_url'] ?? ''),
+    'composer'    => (string)($s['composer'] ?? ''),
+    'arranger'    => (string)($s['arranger'] ?? ''),
+    'publisher'   => (string)($s['publisher'] ?? ''),
+    'duration'    => (string)($s['duration'] ?? ''),
+    'difficulty'  => $s['difficulty'] !== null ? (string)$s['difficulty'] : '',
+    'shop_price'  => $s['shop_price'] !== null ? (string)$s['shop_price'] : '',
+    'shop_url'    => (string)($s['shop_url'] ?? ''),
+    'info'        => (string)($s['info'] ?? ''),
+    'piece_title' => ($s['piece_id'] && !empty($s['piece_title'])) ? (string)$s['piece_title'] : '',
+    'tags'        => $tagsBySong[(int)$s['id']] ?? [],
+  ];
+}
+
 sv_header('Abstimmungstitel', $user);
 
 function diffPill(mixed $d): string { return sv_diff_pill($d); }
@@ -515,6 +535,132 @@ if ($flashError && $flashError !== '__archive_conflict__') {
   </div>
 </dialog>
 
+<!-- Geteilter Bearbeiten-Dialog — wird per JS mit den Daten des Titels befüllt -->
+<dialog id="dialog-song-form" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">Titel bearbeiten</div>
+        <div class="sv-dialog__sub" id="song-form-sub">Stimmen bleiben erhalten.</div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <form method="post" class="grid" style="gap:12px">
+        <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+        <input type="hidden" name="sid"  value="">
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
+        <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
+        <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
+        <?= songFormFields([], []) ?>
+        <div class="small" id="song-form-linked" style="color:var(--muted);display:none">🔗 Verknüpft mit Archiv: <strong></strong></div>
+        <div class="row" style="gap:10px">
+          <button class="btn primary" type="submit">Speichern</button>
+          <button class="btn" type="button" data-close-dialog>Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<?php if (!$isAdmin): ?>
+<!-- Geteilter Löschen-Dialog (Soft-Delete) -->
+<dialog id="dialog-song-softdel" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">Titel löschen</div>
+        <div class="sv-dialog__sub" id="song-softdel-sub"></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <div class="small" style="background:var(--red-soft);border:1px solid rgba(193,9,15,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:var(--red)">
+        Dieser Titel wird zur Prüfung als gelöscht markiert. Der Admin kann ihn wiederherstellen oder endgültig löschen.
+      </div>
+      <form method="post">
+        <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="sid" value="">
+        <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
+        <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
+        <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
+        <label style="display:block;margin-bottom:16px">Grund <span style="color:var(--red)">*</span><br>
+          <input class="input" type="text" name="delete_reason" required placeholder="z.B. Doppelter Eintrag, nicht mehr relevant" style="width:100%;margin-top:5px">
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn" type="submit" style="color:var(--red)">🗑 Als gelöscht markieren</button>
+          <button class="btn" type="button" data-close-dialog>Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+<?php endif; ?>
+
+<script>
+// Daten aller Titel für die geteilten Dialoge
+var SONG_FORM_DATA = <?= json_encode($songFormData, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}' ?>;
+
+function _openSongDlg(dlg) {
+  if (!dlg.open) dlg.showModal();
+  var p = dlg.querySelector('.sv-dialog__panel'); if (p) p.focus();
+}
+
+// YouTube-Pflicht auf Ausgangszustand (Pflicht aktiv) zuruecksetzen
+function _resetYtRequired(f) {
+  var inp = f.querySelector('.yt-input');
+  var lbl = f.querySelector('.yt-label');
+  var btn = f.querySelector('[onclick*="toggleYtRequired"]');
+  var hidden = f.querySelector('input[name="yt_optional"]');
+  if (inp) { inp.setAttribute('required',''); inp.placeholder = 'https://youtu.be/…'; }
+  if (lbl) lbl.textContent = 'YouTube URL *';
+  if (btn) { btn.textContent = 'Pflicht aufheben'; btn.style.cssText = 'font-size:11px;padding:2px 8px'; }
+  if (hidden) hidden.value = '';
+}
+
+function openSongDialog(id) {
+  var d = SONG_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-song-form');
+  if (!d || !dlg) return;
+  var f = dlg.querySelector('form');
+  var set = function(name, val) { var el = f.querySelector('[name="'+name+'"]'); if (el) el.value = (val == null ? '' : val); };
+  set('sid', id);
+  ['title','youtube_url','composer','arranger','publisher','duration','difficulty','shop_price','shop_url','info'].forEach(function(n){ set(n, d[n]); });
+  _resetYtRequired(f);
+  // Genre-Chips neu aufbauen
+  var chips = f.querySelector('.genre-chips');
+  if (chips) {
+    chips.innerHTML = '';
+    (d.tags || []).forEach(function(t){ _svAddChip(chips, t); });
+    svGenreRefresh(chips);
+  }
+  // Archiv-Verknuepfung
+  var linked = document.getElementById('song-form-linked');
+  if (linked) {
+    if (d.piece_title) { linked.style.display = ''; linked.querySelector('strong').textContent = d.piece_title; }
+    else linked.style.display = 'none';
+  }
+  var sub = document.getElementById('song-form-sub');
+  if (sub) sub.textContent = d.title ? d.title + ' — Stimmen bleiben erhalten.' : 'Stimmen bleiben erhalten.';
+  // Duplikat-Hinweis und Submit-Sperre zuruecksetzen
+  var hint = f.querySelector('.dup-hint'); if (hint) hint.style.display = 'none';
+  var sb = f.querySelector('button[type="submit"]'); if (sb) { sb.disabled = false; sb.style.opacity = ''; sb.style.pointerEvents = ''; }
+  _openSongDlg(dlg);
+}
+
+function openSongSoftdelDialog(id) {
+  var d = SONG_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-song-softdel');
+  if (!d || !dlg) return;
+  dlg.querySelector('input[name="sid"]').value = id;
+  var r = dlg.querySelector('input[name="delete_reason"]'); if (r) r.value = '';
+  var sub = document.getElementById('song-softdel-sub'); if (sub) sub.textContent = d.title;
+  _openSongDlg(dlg);
+}
+</script>
+
 <!-- Suche & Filter -->
 <div class="card" style="margin-bottom:12px">
   <form method="get" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -613,70 +759,6 @@ if ($flashError && $flashError !== '__archive_conflict__') {
               </div>
             </div>
 
-            <dialog id="edit-song-<?=h($s['id'])?>" class="sv-dialog">
-              <div class="sv-dialog__panel" tabindex="-1">
-                <div class="sv-dialog__head">
-                  <div>
-                    <div class="sv-dialog__title">Titel bearbeiten</div>
-                    <div class="sv-dialog__sub">Stimmen bleiben erhalten.</div>
-                  </div>
-                  <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
-                </div>
-                <div class="sv-dialog__section">
-                  <form method="post" class="grid" style="gap:12px">
-                    <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
-                    <input type="hidden" name="sid"  value="<?=h($s['id'])?>">
-                    <input type="hidden" name="action" value="update">
-    <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
-    <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
-    <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
-                    <?= songFormFields($s, $tagsBySong[(int)$s['id']] ?? []) ?>
-                    <?php if($s['piece_id']): ?>
-                      <div class="small" style="color:var(--muted)">🔗 Verknüpft mit Archiv: <strong><?=h($s['piece_title']??'')?></strong></div>
-                    <?php endif; ?>
-                    <div class="row" style="gap:10px">
-                      <button class="btn primary" type="submit">Speichern</button>
-                      <button class="btn" type="button" data-close-dialog>Abbrechen</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </dialog>
-
-            <?php if (!$isAdmin): ?>
-            <dialog id="softdel-song-<?=h($s['id'])?>" class="sv-dialog">
-              <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
-                <div class="sv-dialog__head">
-                  <div>
-                    <div class="sv-dialog__title">Titel löschen</div>
-                    <div class="sv-dialog__sub"><?=h($s['title'])?></div>
-                  </div>
-                  <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
-                </div>
-                <div class="sv-dialog__section">
-                  <div class="small" style="background:var(--red-soft);border:1px solid rgba(193,9,15,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:var(--red)">
-                    Dieser Titel wird zur Prüfung als gelöscht markiert. Der Admin kann ihn wiederherstellen oder endgültig löschen.
-                  </div>
-                  <form method="post">
-                    <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
-                    <input type="hidden" name="action" value="delete">
-                    <input type="hidden" name="sid" value="<?=h($s['id'])?>">
-                    <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
-                    <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
-                    <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
-                    <label style="display:block;margin-bottom:16px">Grund <span style="color:var(--red)">*</span><br>
-                      <input class="input" type="text" name="delete_reason" required placeholder="z.B. Doppelter Eintrag, nicht mehr relevant" style="width:100%;margin-top:5px">
-                    </label>
-                    <div style="display:flex;gap:8px;justify-content:flex-end">
-                      <button class="btn" type="submit" style="color:var(--red)">🗑 Als gelöscht markieren</button>
-                      <button class="btn" type="button" data-close-dialog>Abbrechen</button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            </dialog>
-            <?php endif; ?>
-
           </td>
         </tr>
       <?php endforeach; ?>
@@ -692,7 +774,14 @@ if ($flashError && $flashError !== '__archive_conflict__') {
 (function(){
   document.addEventListener('click', function(e){
     var o = e.target.closest('[data-open-dialog]');
-    if(o){ var d = document.getElementById(o.getAttribute('data-open-dialog')); if(d){ d.showModal(); var p=d.querySelector('.sv-dialog__panel'); if(p) p.focus(); } return; }
+    if(o){
+      var id = o.getAttribute('data-open-dialog');
+      // Pro-Titel-IDs auf die geteilten Dialoge umleiten
+      var m;
+      if ((m = id.match(/^edit-song-(\d+)$/)))    { openSongDialog(parseInt(m[1],10)); return; }
+      if ((m = id.match(/^softdel-song-(\d+)$/))) { openSongSoftdelDialog(parseInt(m[1],10)); return; }
+      var d = document.getElementById(id); if(d && !d.open){ d.showModal(); var p=d.querySelector('.sv-dialog__panel'); if(p) p.focus(); } return;
+    }
     var c = e.target.closest('[data-close-dialog]');
     if(c){ var d = c.closest('dialog'); if(d){
       d.querySelectorAll('input:not([type=hidden]), textarea, select').forEach(function(el){
