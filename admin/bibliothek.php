@@ -22,11 +22,12 @@ function pieceForm(?array $p, string $action, array $selectedTags = []): string 
 <form method="post" class="grid" style="gap:12px">
   <input type="hidden" name="csrf" value="<?=htmlspecialchars(sv_csrf_token(),ENT_QUOTES)?>">
   <input type="hidden" name="action" value="<?=htmlspecialchars($action,ENT_QUOTES)?>">
-  <?php if($pid): ?><input type="hidden" name="pid" value="<?=$pid?>"><?php endif; ?>
+  <?php if($pid || $action !== 'create'): ?><input type="hidden" name="pid" value="<?=$pid?>"><?php endif; ?>
   <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
   <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
   <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
   <input type="hidden" name="_page" value="<?=h($_GET['page'] ?? '')?>">
+  <input type="hidden" name="notes" value="<?=$v('notes')?>">
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" class="form-grid-2-inner">
     <label style="grid-column:1/-1">Titel *<br><input name="title" required value="<?=$v('title')?>" style="width:100%;margin-top:5px" class="dup-title"></label>
@@ -420,6 +421,32 @@ try {
   }
 } catch (Throwable $e) {}
 
+// Formulardaten aller Stücke als JSON für die geteilten Dialoge
+// (ein Bearbeiten/Verleihen/Löschen-Dialog statt einem pro Zeile — Performance)
+$bibFormData = [];
+foreach ($pieces as $p) {
+  $bibFormData[(int)$p['id']] = [
+    'title'       => (string)$p['title'],
+    'youtube_url' => (string)($p['youtube_url'] ?? ''),
+    'composer'    => (string)($p['composer'] ?? ''),
+    'arranger'    => (string)($p['arranger'] ?? ''),
+    'publisher'   => (string)($p['publisher'] ?? ''),
+    'duration'    => (string)($p['duration'] ?? ''),
+    'difficulty'  => $p['difficulty'] !== null ? (string)$p['difficulty'] : '',
+    'owner'       => (string)($p['owner'] ?? ''),
+    'shop_price'  => $p['shop_price'] !== null ? (string)$p['shop_price'] : '',
+    'shop_url'    => (string)($p['shop_url'] ?? ''),
+    'querverweis' => (string)($p['querverweis'] ?? ''),
+    'info'        => (string)($p['info'] ?? ''),
+    'notes'       => (string)($p['notes'] ?? ''),
+    'has_scan'           => (int)$p['has_scan'],
+    'has_score_scan'     => (int)$p['has_score_scan'],
+    'has_original_score' => (int)$p['has_original_score'],
+    'binder'             => !empty($p['binder']) ? 1 : 0,
+    'tags'        => $tagsByPiece[(int)$p['id']] ?? [],
+  ];
+}
+
 sv_header('Notenbibliothek', $user);
 ?>
 <style>
@@ -593,113 +620,6 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
           </td>
         </tr>
 
-        <?php if ($canEdit): ?>
-        <dialog id="dialog-edit-<?=h($p['id'])?>" class="sv-dialog">
-          <div class="sv-dialog__panel" tabindex="-1">
-            <div class="sv-dialog__head">
-              <div>
-                <div class="sv-dialog__title">Stück bearbeiten</div>
-                <div class="sv-dialog__sub"><?=h($p['title'])?></div>
-              </div>
-              <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
-            </div>
-            <div class="sv-dialog__section">
-              <?= pieceForm($p, 'update', $tagsByPiece[(int)$p['id']] ?? []) ?>
-            </div>
-          </div>
-        </dialog>
-
-        <?php if(empty($p['loaned_to'])): ?>
-        <dialog id="dialog-loan-<?=h($p['id'])?>" class="sv-dialog">
-          <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
-            <div class="sv-dialog__head">
-              <div>
-                <div class="sv-dialog__title">Stück verleihen</div>
-                <div class="sv-dialog__sub"><?=h($p['title'])?></div>
-              </div>
-              <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
-            </div>
-            <div class="sv-dialog__section">
-              <form method="post">
-                <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
-                <input type="hidden" name="action" value="loan">
-                <input type="hidden" name="pid" value="<?=h($p['id'])?>">
-                <label style="display:block;margin-bottom:12px">Ausgeliehen an <span style="color:var(--red)">*</span><br>
-                  <input class="input" type="text" name="loaned_to" required placeholder="z.B. Musikverein Musterstadt" style="width:100%;margin-top:5px">
-                </label>
-                <label style="display:block;margin-bottom:12px">Datum<br>
-                  <input class="input" type="date" name="loaned_at" value="<?=date('Y-m-d')?>" style="width:100%;margin-top:5px">
-                </label>
-                <label style="display:block;margin-bottom:16px">Vermerk <span class="small muted">(optional)</span><br>
-                  <input class="input" type="text" name="loaned_note" placeholder="z.B. Rückgabe bis Juni" style="width:100%;margin-top:5px">
-                </label>
-                <div style="display:flex;gap:8px;justify-content:flex-end">
-                  <button class="btn primary" type="submit">📦 Verleihen</button>
-                  <button class="btn" type="button" data-close-dialog>Abbrechen</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </dialog>
-        <?php endif; ?>
-
-        <?php if ($canEdit && !$isAdmin): ?>
-        <dialog id="dialog-softdel-<?=h($p['id'])?>" class="sv-dialog">
-          <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
-            <div class="sv-dialog__head">
-              <div>
-                <div class="sv-dialog__title">Stück löschen</div>
-                <div class="sv-dialog__sub"><?=h($p['title'])?></div>
-              </div>
-              <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
-            </div>
-            <div class="sv-dialog__section">
-              <div class="small" style="background:var(--red-soft);border:1px solid rgba(193,9,15,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:var(--red)">
-                Dieses Stück wird zur Prüfung als gelöscht markiert. Der Admin kann es wiederherstellen oder endgültig löschen.
-              </div>
-              <form method="post">
-                <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="pid" value="<?=h($p['id'])?>">
-                <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
-                <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
-                <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
-                <input type="hidden" name="_page" value="<?=h($_GET['page'] ?? '')?>">
-                <label style="display:block;margin-bottom:16px">Grund <span style="color:var(--red)">*</span><br>
-                  <input class="input" type="text" name="delete_reason" required placeholder="z.B. Doppelter Eintrag, Titel existiert nicht mehr" style="width:100%;margin-top:5px">
-                </label>
-                <div style="display:flex;gap:8px;justify-content:flex-end">
-                  <button class="btn" type="submit" style="color:var(--red)">🗑 Als gelöscht markieren</button>
-                  <button class="btn" type="button" data-close-dialog>Abbrechen</button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </dialog>
-        <?php endif; ?>
-
-        <?php endif; ?>
-
-        <?php if (!$canEdit): ?>
-        <dialog id="dialog-suggest-<?=h($p['id'])?>" class="sv-dialog">
-          <div class="sv-dialog__panel" tabindex="-1">
-            <div class="sv-dialog__head">
-              <div>
-                <div class="sv-dialog__title">Änderung vorschlagen</div>
-                <div class="sv-dialog__sub"><?=h($p['title'])?></div>
-              </div>
-              <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
-            </div>
-            <div class="sv-dialog__section">
-              <div class="small" style="background:#fff8e1;border:1px solid rgba(184,134,11,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:#b8860b">
-                Ändere die Felder, die du korrigieren möchtest. Dein Vorschlag wird zur Prüfung an die Notenverwaltung gesendet.
-              </div>
-              <?= pieceForm($p, 'suggest', $tagsByPiece[(int)$p['id']] ?? []) ?>
-            </div>
-          </div>
-        </dialog>
-        <?php endif; ?>
-
       <?php endforeach; ?>
       <?php if(!$pieces): ?>
         <tr><td colspan="8" class="small"><?= $search ? 'Keine Treffer für „'.h($search).'".' : 'Noch keine Stücke im Archiv. Stücke manuell anlegen oder per Import laden.' ?></td></tr>
@@ -782,6 +702,156 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
 </dialog>
 <?php endif; ?>
 
+<!-- Geteilter Bearbeiten/Vorschlag-Dialog — wird per JS mit den Daten des Stücks befüllt -->
+<dialog id="dialog-piece-form" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title"><?= $canEdit ? 'Stück bearbeiten' : 'Änderung vorschlagen' ?></div>
+        <div class="sv-dialog__sub" id="piece-form-sub"></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <?php if (!$canEdit): ?>
+      <div class="small" style="background:#fff8e1;border:1px solid rgba(184,134,11,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:#b8860b">
+        Ändere die Felder, die du korrigieren möchtest. Dein Vorschlag wird zur Prüfung an die Notenverwaltung gesendet.
+      </div>
+      <?php endif; ?>
+      <?= pieceForm(null, $canEdit ? 'update' : 'suggest') ?>
+    </div>
+  </div>
+</dialog>
+
+<?php if ($canEdit): ?>
+<!-- Geteilter Verleihen-Dialog -->
+<dialog id="dialog-loan" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">Stück verleihen</div>
+        <div class="sv-dialog__sub" id="dialog-loan-sub"></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <form method="post">
+        <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+        <input type="hidden" name="action" value="loan">
+        <input type="hidden" name="pid" value="">
+        <label style="display:block;margin-bottom:12px">Ausgeliehen an <span style="color:var(--red)">*</span><br>
+          <input class="input" type="text" name="loaned_to" required placeholder="z.B. Musikverein Musterstadt" style="width:100%;margin-top:5px">
+        </label>
+        <label style="display:block;margin-bottom:12px">Datum<br>
+          <input class="input" type="date" name="loaned_at" value="<?=date('Y-m-d')?>" style="width:100%;margin-top:5px">
+        </label>
+        <label style="display:block;margin-bottom:16px">Vermerk <span class="small muted">(optional)</span><br>
+          <input class="input" type="text" name="loaned_note" placeholder="z.B. Rückgabe bis Juni" style="width:100%;margin-top:5px">
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn primary" type="submit">📦 Verleihen</button>
+          <button class="btn" type="button" data-close-dialog>Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<?php if (!$isAdmin): ?>
+<!-- Geteilter Löschen-Dialog (Soft-Delete für Noten-Rolle) -->
+<dialog id="dialog-softdel" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1" style="max-width:440px">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">Stück löschen</div>
+        <div class="sv-dialog__sub" id="dialog-softdel-sub"></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog aria-label="Schließen">✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <div class="small" style="background:var(--red-soft);border:1px solid rgba(193,9,15,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:var(--red)">
+        Dieses Stück wird zur Prüfung als gelöscht markiert. Der Admin kann es wiederherstellen oder endgültig löschen.
+      </div>
+      <form method="post">
+        <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="pid" value="">
+        <input type="hidden" name="_q"    value="<?=h($_GET['q']    ?? '')?>">
+        <input type="hidden" name="_sort" value="<?=h($_GET['sort'] ?? '')?>">
+        <input type="hidden" name="_dir"  value="<?=h($_GET['dir']  ?? '')?>">
+        <input type="hidden" name="_page" value="<?=h($_GET['page'] ?? '')?>">
+        <label style="display:block;margin-bottom:16px">Grund <span style="color:var(--red)">*</span><br>
+          <input class="input" type="text" name="delete_reason" required placeholder="z.B. Doppelter Eintrag, Titel existiert nicht mehr" style="width:100%;margin-top:5px">
+        </label>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn" type="submit" style="color:var(--red)">🗑 Als gelöscht markieren</button>
+          <button class="btn" type="button" data-close-dialog>Abbrechen</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+<?php endif; ?>
+<?php endif; ?>
+
+<script>
+// Daten aller Stücke für die geteilten Dialoge
+var BIB_FORM_DATA = <?= json_encode($bibFormData, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT|JSON_INVALID_UTF8_SUBSTITUTE) ?: '{}' ?>;
+
+function _openSvDialog(dlg) {
+  if (!dlg.open) dlg.showModal();
+  var p = dlg.querySelector('.sv-dialog__panel'); if (p) p.focus();
+}
+
+// Bearbeiten- bzw. Vorschlag-Dialog mit den Daten eines Stücks befüllen und öffnen
+function openPieceDialog(id) {
+  var d = BIB_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-piece-form');
+  if (!d || !dlg) return;
+  var f = dlg.querySelector('form');
+  var set = function(name, val) { var el = f.querySelector('[name="'+name+'"]'); if (el) el.value = (val == null ? '' : val); };
+  set('pid', id);
+  ['title','youtube_url','composer','arranger','publisher','duration','difficulty','owner','shop_price','shop_url','querverweis','info','notes'].forEach(function(n){ set(n, d[n]); });
+  ['has_scan','has_score_scan','has_original_score','binder'].forEach(function(n){
+    var el = f.querySelector('[name="'+n+'"]'); if (el) el.checked = !!d[n];
+  });
+  // Genre-Chips neu aufbauen
+  var chips = f.querySelector('.genre-chips');
+  if (chips) {
+    chips.innerHTML = '';
+    (d.tags || []).forEach(function(t){ _svAddChip(chips, t); });
+    svGenreRefresh(chips);
+  }
+  var sub = document.getElementById('piece-form-sub'); if (sub) sub.textContent = d.title;
+  // Duplikat-Hinweis und Submit-Sperre zurücksetzen
+  var hint = f.querySelector('.dup-hint'); if (hint) hint.style.display = 'none';
+  var sb = f.querySelector('button[type="submit"]'); if (sb) { sb.disabled = false; sb.style.opacity = ''; sb.style.pointerEvents = ''; }
+  _openSvDialog(dlg);
+}
+
+function openLoanDialog(id) {
+  var d = BIB_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-loan');
+  if (!d || !dlg) return;
+  dlg.querySelector('input[name="pid"]').value = id;
+  var lt = dlg.querySelector('input[name="loaned_to"]');   if (lt) lt.value = '';
+  var la = dlg.querySelector('input[name="loaned_at"]');   if (la) la.value = la.defaultValue;
+  var ln = dlg.querySelector('input[name="loaned_note"]'); if (ln) ln.value = '';
+  var sub = document.getElementById('dialog-loan-sub'); if (sub) sub.textContent = d.title;
+  _openSvDialog(dlg);
+}
+
+function openSoftdelDialog(id) {
+  var d = BIB_FORM_DATA[id];
+  var dlg = document.getElementById('dialog-softdel');
+  if (!d || !dlg) return;
+  dlg.querySelector('input[name="pid"]').value = id;
+  var r = dlg.querySelector('input[name="delete_reason"]'); if (r) r.value = '';
+  var sub = document.getElementById('dialog-softdel-sub'); if (sub) sub.textContent = d.title;
+  _openSvDialog(dlg);
+}
+</script>
+
 <?php
 ?>
 
@@ -791,8 +861,13 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
     var openBtn = e.target.closest('[data-open-dialog]');
     if(openBtn){
       var id = openBtn.getAttribute('data-open-dialog');
+      // Pro-Stück-IDs auf die geteilten Dialoge umleiten
+      var m;
+      if ((m = id.match(/^dialog-(?:edit|suggest)-(\d+)$/))) { openPieceDialog(parseInt(m[1],10)); return; }
+      if ((m = id.match(/^dialog-loan-(\d+)$/)))             { openLoanDialog(parseInt(m[1],10)); return; }
+      if ((m = id.match(/^dialog-softdel-(\d+)$/)))          { openSoftdelDialog(parseInt(m[1],10)); return; }
       var dlg = document.getElementById(id);
-      if(dlg){ dlg.showModal(); var p=dlg.querySelector('.sv-dialog__panel'); if(p) p.focus(); }
+      if(dlg && !dlg.open){ dlg.showModal(); var p=dlg.querySelector('.sv-dialog__panel'); if(p) p.focus(); }
       return;
     }
     var closeBtn = e.target.closest('[data-close-dialog]');
@@ -902,7 +977,7 @@ function closeOnOutside(e) {
 // AJAX edit dialog
 document.addEventListener('click', function(e){
   var openBtn = e.target.closest('[data-open-dialog]');
-  if(openBtn){ var d=document.getElementById(openBtn.getAttribute('data-open-dialog')); if(d){ d.showModal(); var p=d.querySelector('.sv-dialog__panel'); if(p) p.focus(); } return; }
+  if(openBtn){ var d=document.getElementById(openBtn.getAttribute('data-open-dialog')); if(d && !d.open){ d.showModal(); var p=d.querySelector('.sv-dialog__panel'); if(p) p.focus(); } return; }
 
   var closeBtn = e.target.closest('[data-close-dialog]');
   if(closeBtn){ var d=closeBtn.closest('dialog'); if(d){ d.close(); document.body.style.overflow=''; } }

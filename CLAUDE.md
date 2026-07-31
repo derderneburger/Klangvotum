@@ -87,6 +87,12 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 - Beim **Anlegen**: Prüfung gegen `pieces` UND `songs` (verhindert Doppel-Einträge)
 - Beim **Bearbeiten**: Prüfung nur gegen `pieces` (Songs-Prüfung übersprungen, da das Stück bereits verknüpft sein kann)
 
+### Bibliothek Performance (geteilte Dialoge)
+- `admin/bibliothek.php` rendert **einen** geteilten Bearbeiten/Vorschlag-Dialog (`dialog-piece-form`), einen Verleihen- (`dialog-loan`) und einen Soft-Delete-Dialog (`dialog-softdel`) — NICHT einen pro Zeile (früher 251× → extrem langsames DOM)
+- Stück-Daten liegen als JSON in `BIB_FORM_DATA` (per `json_encode` mit HEX-Flags); `openPieceDialog(id)` / `openLoanDialog(id)` / `openSoftdelDialog(id)` befüllen die Dialoge per JS
+- Die Trigger-Buttons behalten ihre alten IDs (`data-open-dialog="dialog-edit-<id>"` etc.) — der Klick-Handler leitet sie per Regex auf die geteilten Dialoge um. Beim Erweitern: neue Stück-Felder in `$bibFormData` UND in `openPieceDialog()` ergänzen
+- Verstecktes `notes`-Feld im Formular bewahrt `pieces.notes` beim Speichern (vorher wurde notes bei jedem Edit geleert)
+
 ### Trennungsregel
 - `var(--accent)` / `var(--accent-hover)` — Für Branding (Buttons, Links, aktive Elemente)
 - `var(--green)` / `var(--green-light)` / `var(--green-mid)` — Für Navigation, Badges, Checkboxen, Fokus
