@@ -128,34 +128,70 @@ $leitungLabel = sv_setting_get('leitung_role_label', 'Leitung');
   <a class="btn" href="<?=h($base)?>/admin/">← Verwaltung</a>
 </div>
 
-<div class="card" style="margin-top:12px">
-  <h3>Neuen Benutzer anlegen</h3>
-  <form method="post" class="grid form-grid-2" style="grid-template-columns:repeat(2,1fr);gap:10px">
-    <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
-    <input type="hidden" name="action" value="create">
-    <label>Benutzername<br><input name="username" required></label>
-    <label>Anzeigename<br><input name="display_name"></label>
-    <label>Passwort<br><input name="password" type="password" required></label>
-    <label>Rolle<br>
-      <div class="select-wrap" style="margin-top:5px">
-        <select name="role">
-          <option value="user"><?=h($userLabel)?></option>
-          <option value="leitung"><?=h($leitungLabel)?></option>
-          <option value="admin">Admin</option>
-        </select>
+<div class="users-new-grid" style="display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin-top:12px;align-items:start">
+  <div class="card" style="margin-top:0">
+    <h3>Neuen Benutzer anlegen</h3>
+    <form method="post" class="grid form-grid-2" style="grid-template-columns:repeat(2,1fr);gap:10px">
+      <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+      <input type="hidden" name="action" value="create">
+      <label>Benutzername<br><input name="username" required></label>
+      <label>Anzeigename<br><input name="display_name"></label>
+      <label>Passwort<br><input name="password" type="password" required></label>
+      <label>Rolle<br>
+        <div class="select-wrap" style="margin-top:5px">
+          <select name="role">
+            <option value="user"><?=h($userLabel)?></option>
+            <option value="leitung"><?=h($leitungLabel)?></option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+      </label>
+      <div style="grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap">
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" name="has_chronik" value="1"> Chronik-Zugriff
+        </label>
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" name="has_noten" value="1"> Noten-Zugriff
+        </label>
       </div>
-    </label>
-    <div style="grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap">
-      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="checkbox" name="has_chronik" value="1"> Chronik-Zugriff
-      </label>
-      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="checkbox" name="has_noten" value="1"> Noten-Zugriff
-      </label>
+      <div style="grid-column:1/-1"><button class="btn primary" type="submit">Anlegen</button></div>
+    </form>
+  </div>
+
+  <div class="card" style="margin-top:0">
+    <h3>Wer kann was?</h3>
+    <div class="small" style="color:var(--muted);margin-bottom:10px">Die zwei Häkchen (📚 Noten-Zugriff, 🏛 Chronik-Zugriff) gelten unabhängig von der Rolle — <strong>außer bei Admin: der hat immer alles.</strong></div>
+    <div class="table-scroll">
+    <table style="font-size:12.5px">
+      <thead><tr>
+        <th>Bereich</th>
+        <th style="text-align:center"><?=h($userLabel)?></th>
+        <th style="text-align:center"><?=h($leitungLabel)?></th>
+        <th style="text-align:center">Admin</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>Abstimmen</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Ergebnisse ansehen</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Notizen anderer in Ergebnissen sehen</td><td style="text-align:center">–</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Stimmen-Detail (wer hat wie abgestimmt)</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Bibliothek ansehen</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Bibliothek bearbeiten, Ausleihen, Abstimmungstitel, Vorschläge prüfen</td><td style="text-align:center">nur mit 📚</td><td style="text-align:center">nur mit 📚</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Chronik ansehen</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Chronik bearbeiten (Auftritte anlegen, Stücke zuordnen)</td><td style="text-align:center">nur mit 🏛</td><td style="text-align:center">nur mit 🏛</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Konzertplaner öffnen</td><td style="text-align:center">–</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Im Planer „In Chronik übernehmen"</td><td style="text-align:center">–</td><td style="text-align:center">nur mit 🏛</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Fortschritt-Seite</td><td style="text-align:center">–</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Einfrieren, Kartenanzeige, Einstellungen, Benutzer, Wartung</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">✓</td></tr>
+      </tbody>
+    </table>
     </div>
-    <div style="grid-column:1/-1"><button class="btn primary" type="submit">Anlegen</button></div>
-  </form>
+  </div>
 </div>
+<style>
+  @media (max-width: 860px) {
+    .users-new-grid { grid-template-columns: 1fr !important; }
+  }
+</style>
 
 <div class="card" style="margin-top:12px">
   <h3>Vorhandene Benutzer</h3>

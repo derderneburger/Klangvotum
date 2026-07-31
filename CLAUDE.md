@@ -151,6 +151,13 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 ### Ausleihen (`admin/ausleihen.php`)
 - Pro-Zeile Lösch-Button (Admin only)
 
+### Benutzerverwaltung (`admin/users.php`)
+- Neben dem "Neuer Benutzer"-Formular steht eine Referenztabelle "Wer kann was?" — zeigt pro Rolle (O-Rat/Leitung/Admin-Label) welche Bereiche zugänglich sind
+- **Wichtig beim Ändern von Rechten im Code**: Die Tabelle muss manuell nachgezogen werden, sie liest nichts dynamisch aus. Rechte-Modell zur Erinnerung:
+  - Rolle (`user`/`leitung`/`admin`) steuert NUR grobe Seitenzugriffe: `sv_require_leitung()` blockt `user`-Rolle komplett aus (planer.php, progress.php) — unabhängig von `has_chronik`/`has_noten`
+  - `has_chronik`/`has_noten`-Flags sind rollenunabhängig und steuern nur *Bearbeiten*-Rechte innerhalb von Seiten, die man schon betreten darf (`sv_can_edit_chronik()`, `sv_can_edit_noten()`) — Admin hat immer beides, unabhängig von den Flags
+  - Konkret: Ein `user` mit `has_chronik=1` sieht die Chronik nur lesend UND kommt gar nicht erst auf `planer.php` (403) — das Flag allein reicht nicht für den "In Chronik übernehmen"-Button
+
 ### Bibliothek-Merge (`admin/bibliothek_merge.php`)
 - Nutzt `$accentRed` für Diff-Pfeile (PHP + JavaScript)
 
