@@ -122,10 +122,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 
   } elseif ($action === 'remove_piece') {
-    $cid = (int)($_POST['cid'] ?? 0);
-    $pid = (int)($_POST['pid'] ?? 0);
-    if ($cid && $pid) {
-      $pdo->prepare("DELETE FROM concert_pieces WHERE concert_id=? AND piece_id=?")->execute([$cid, $pid]);
+    $cid  = (int)($_POST['cid'] ?? 0);
+    $cpid = (int)($_POST['cpid'] ?? 0);
+    if ($cid && $cpid) {
+      $pdo->prepare("DELETE FROM concert_pieces WHERE id=? AND concert_id=?")->execute([$cpid, $cid]);
     }
     header('Location: ' . $base . '/admin/concerts.php?cid=' . $cid);
     exit;
@@ -242,12 +242,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 
   } elseif ($action === 'reorder') {
-    $cid  = (int)($_POST['cid'] ?? 0);
-    $pids = isset($_POST['pids']) && is_array($_POST['pids']) ? $_POST['pids'] : [];
-    if ($cid && $pids) {
-      $stmt = $pdo->prepare("UPDATE concert_pieces SET position=? WHERE concert_id=? AND piece_id=?");
-      foreach ($pids as $pos => $pid) {
-        $stmt->execute([$pos + 1, $cid, (int)$pid]);
+    $cid   = (int)($_POST['cid'] ?? 0);
+    $cpids = isset($_POST['cpids']) && is_array($_POST['cpids']) ? $_POST['cpids'] : [];
+    if ($cid && $cpids) {
+      $stmt = $pdo->prepare("UPDATE concert_pieces SET position=? WHERE id=? AND concert_id=?");
+      foreach ($cpids as $pos => $cpid) {
+        $stmt->execute([$pos + 1, (int)$cpid, $cid]);
       }
     }
     header('Content-Type: application/json');
@@ -280,7 +280,7 @@ $concerts = $stmt->fetchAll();
 $pieceCounts = [];
 if ($concerts) {
   $ids    = implode(',', array_map(function($r){ return (int)$r['id']; }, $concerts));
-  $pcRows = $pdo->query("SELECT concert_id, COUNT(*) AS cnt FROM concert_pieces WHERE concert_id IN ($ids) GROUP BY concert_id")->fetchAll();
+  $pcRows = $pdo->query("SELECT concert_id, COUNT(*) AS cnt FROM concert_pieces WHERE concert_id IN ($ids) AND item_type='piece' GROUP BY concert_id")->fetchAll();
   foreach ($pcRows as $pc) $pieceCounts[(int)$pc['concert_id']] = (int)$pc['cnt'];
 }
 
@@ -295,15 +295,17 @@ if ($selectedId) {
   $s->execute([$selectedId]);
   $selected = $s->fetch() ?: null;
   if ($selected) {
-    $sp = $pdo->prepare("SELECT cp.position, p.id, p.title, p.composer, p.arranger, p.duration, p.difficulty, p.youtube_url, p.info, p.querverweis FROM concert_pieces cp JOIN pieces p ON p.id=cp.piece_id WHERE cp.concert_id=? ORDER BY cp.position ASC, p.title ASC");
+    $sp = $pdo->prepare("SELECT cp.id AS cpid, cp.position, cp.item_type, cp.label, cp.duration_override, p.id, p.title, p.composer, p.arranger, p.duration, p.difficulty, p.youtube_url, p.info, p.querverweis FROM concert_pieces cp LEFT JOIN pieces p ON p.id=cp.piece_id WHERE cp.concert_id=? ORDER BY cp.position ASC, cp.id ASC");
     $sp->execute([$selectedId]);
     $selPieces = $sp->fetchAll();
   }
 }
 $tagsByPiece = [];
 if ($selPieces) {
-  $tagsByPiece = sv_tags_for_pieces(array_column($selPieces, 'id'));
+  $tagsByPiece = sv_tags_for_pieces(array_values(array_filter(array_map('intval', array_column($selPieces, 'id')))));
 }
+// Nur echte Stuecke zaehlen (keine Bloecke/Pause/Zugaben)
+$selPieceCount = count(array_filter($selPieces, function($r){ return ($r['item_type'] ?? 'piece') === 'piece'; }));
 
 // ── Export ─────────────────────────────────────────────────────────────────────
 // CSV Export alle Events (nur Admin)
@@ -345,7 +347,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'all') {
   }
   $allPrograms = [];
   foreach ($allConcerts as $con) {
-    $sp2 = $pdo->prepare("SELECT cp.position, p.title, p.composer, p.arranger, p.duration, p.querverweis FROM concert_pieces cp JOIN pieces p ON p.id=cp.piece_id WHERE cp.concert_id=? ORDER BY cp.position ASC, p.title ASC");
+    $sp2 = $pdo->prepare("SELECT cp.position, cp.item_type, cp.label, cp.duration_override, p.title, p.composer, p.arranger, p.duration, p.querverweis FROM concert_pieces cp LEFT JOIN pieces p ON p.id=cp.piece_id WHERE cp.concert_id=? ORDER BY cp.position ASC, cp.id ASC");
     $sp2->execute([(int)$con['id']]);
     $allPrograms[(int)$con['id']] = $sp2->fetchAll();
   }
@@ -386,18 +388,30 @@ tr:nth-child(even){background:#fafafa}
     <?php $conDate = concertDate($con); ?>
     <?php if($conDate): ?><?=htmlspecialchars($conDate)?><?php endif; ?>
     <?php if($con['location']): ?><?=$conDate?' · ':''?><?=htmlspecialchars($con['location'])?><?php endif; ?>
-    · <?=count($prog)?> Stücke
+    · <?=count(array_filter($prog, function($r){ return ($r['item_type'] ?? 'piece') === 'piece'; }))?> Stücke
   </div>
   <?php if ($isCancelled): ?><div class="cancelled-notice">⚠ Dieser Auftritt ist als ausgefallen markiert.</div><?php endif; ?>
   <?php if ($prog): ?>
   <table><thead><tr><th>#</th><th>Titel</th><th>Komponist / Arrangeur</th><th>Länge</th></tr></thead><tbody>
-  <?php foreach ($prog as $i => $p): ?>
+  <?php $nr = 0; foreach ($prog as $p): ?>
+  <?php $itype = $p['item_type'] ?? 'piece'; ?>
+  <?php if ($itype === 'halftime' || $itype === 'zugabe'): $isZug = $itype === 'zugabe'; ?>
+  <tr><td colspan="4" style="text-align:center;font-weight:700;letter-spacing:.05em;padding:6px;background:<?=$isZug?'#fff7ed':'#f5f2ee'?>;color:<?=$isZug?'#b45309':'#555'?>;border-top:2px solid <?=$isZug?'#d97706':'#333'?>;border-bottom:2px solid <?=$isZug?'#d97706':'#333'?>"><?=htmlspecialchars(($p['label'] ?? '') !== '' ? $p['label'] : ($isZug ? 'Zugaben' : 'Pause'))?></td></tr>
+  <?php elseif ($itype === 'block'): ?>
   <tr>
-    <td class="num"><?=$i+1?></td>
-    <td><?=htmlspecialchars($p['title'])?><?php if(!empty($p['querverweis'])): ?> <small style="color:#aaa">/ <?=htmlspecialchars($p['querverweis'])?></small><?php endif; ?></td>
-    <td style="color:#555"><?=htmlspecialchars($p['composer']??'')?><?php if(!empty($p['arranger'])): ?> / Arr. <?=htmlspecialchars($p['arranger'])?><?php endif; ?></td>
-    <td style="white-space:nowrap"><?=htmlspecialchars($p['duration']??'–')?></td>
+    <td class="num"><?=++$nr?></td>
+    <td style="color:#666;font-style:italic"><?=htmlspecialchars(($p['label'] ?? '') !== '' ? $p['label'] : 'Block')?></td>
+    <td style="color:#555">–</td>
+    <td style="white-space:nowrap"><?=htmlspecialchars($p['duration_override']??'–')?></td>
   </tr>
+  <?php else: ?>
+  <tr>
+    <td class="num"><?=++$nr?></td>
+    <td><?=htmlspecialchars($p['title'] ?? ($p['label'] ?? '–'))?><?php if(!empty($p['querverweis'])): ?> <small style="color:#aaa">/ <?=htmlspecialchars($p['querverweis'])?></small><?php endif; ?></td>
+    <td style="color:#555"><?=htmlspecialchars($p['composer']??'')?><?php if(!empty($p['arranger'])): ?> / Arr. <?=htmlspecialchars($p['arranger'])?><?php endif; ?></td>
+    <td style="white-space:nowrap"><?=htmlspecialchars($p['duration'] ?? $p['duration_override'] ?? '–')?></td>
+  </tr>
+  <?php endif; ?>
   <?php endforeach; ?>
   </tbody></table>
   <?php else: ?><p style="color:#aaa;font-size:9pt">Kein Programm eingetragen.</p><?php endif; ?>
@@ -412,9 +426,11 @@ if ($exportMode && $selected) {
   $exportName = $selected['name'];
   $exportDate = concertDate($selected);
   $exportLoc  = $selected['location'] ?? '';
+  $accentRed   = sv_setting_get('color_primary', '#c1090f');
+  $accentHover = sv_color_darken($accentRed, 0.15);
   $totalSec   = 0;
   foreach ($selPieces as $p) {
-    $d = trim($p['duration'] ?? '');
+    $d = trim((string)($p['duration'] ?? $p['duration_override'] ?? ''));
     $d = rtrim($d, "'\"");
     if (preg_match('/^(\d+)[:\'.](\d{1,2})$/', $d, $m)) $totalSec += (int)$m[1]*60+(int)$m[2];
     elseif (preg_match('/^\d+$/', $d)) $totalSec += (int)$d * 60;
@@ -447,7 +463,7 @@ tr:nth-child(even){background:#fafafa}
 <div class="sub">
   <?php if($exportDate): ?><?=htmlspecialchars($exportDate)?><?php endif; ?>
   <?php if($exportLoc): ?> · <?=htmlspecialchars($exportLoc)?><?php endif; ?>
-  · <?=count($selPieces)?> Stücke
+  · <?=$selPieceCount?> Stücke
 </div>
 <?php if(!empty($selected['cancelled'])): ?>
 <div class="cancelled-notice">⚠ Dieser Auftritt ist als <strong>ausgefallen</strong> markiert.</div>
@@ -455,13 +471,25 @@ tr:nth-child(even){background:#fafafa}
 <table>
 <thead><tr><th>#</th><th>Titel</th><th>Komponist / Arrangeur</th><th>Länge</th></tr></thead>
 <tbody>
-<?php foreach ($selPieces as $i => $p): ?>
+<?php $nr = 0; foreach ($selPieces as $p): ?>
+<?php $itype = $p['item_type'] ?? 'piece'; ?>
+<?php if ($itype === 'halftime' || $itype === 'zugabe'): $isZug = $itype === 'zugabe'; ?>
+<tr><td colspan="4" style="text-align:center;font-weight:700;letter-spacing:.05em;padding:7px;background:<?=$isZug?'#fff7ed':'#f5f2ee'?>;color:<?=$isZug?'#b45309':'#555'?>;border-top:2px solid <?=$isZug?'#d97706':'#333'?>;border-bottom:2px solid <?=$isZug?'#d97706':'#333'?>"><?=htmlspecialchars(($p['label'] ?? '') !== '' ? $p['label'] : ($isZug ? 'Zugaben' : 'Pause'))?></td></tr>
+<?php elseif ($itype === 'block'): ?>
 <tr>
-  <td class="num"><?=$i+1?></td>
-  <td><?=htmlspecialchars($p['title'])?><?php if(!empty($p['querverweis'])): ?> <small style="color:#999">/ <?=htmlspecialchars($p['querverweis'])?></small><?php endif; ?></td>
-  <td style="color:#555"><?=htmlspecialchars($p['composer']??'')?><?php if(!empty($p['arranger'])): ?><br><small>Arr. <?=htmlspecialchars($p['arranger'])?></small><?php endif; ?></td>
-  <td style="white-space:nowrap"><?=htmlspecialchars($p['duration']??'–')?></td>
+  <td class="num"><?=++$nr?></td>
+  <td style="color:#666;font-style:italic"><?=htmlspecialchars(($p['label'] ?? '') !== '' ? $p['label'] : 'Block')?></td>
+  <td style="color:#555">–</td>
+  <td style="white-space:nowrap"><?=htmlspecialchars($p['duration_override']??'–')?></td>
 </tr>
+<?php else: ?>
+<tr>
+  <td class="num"><?=++$nr?></td>
+  <td><?=htmlspecialchars($p['title'] ?? ($p['label'] ?? '–'))?><?php if(!empty($p['querverweis'])): ?> <small style="color:#999">/ <?=htmlspecialchars($p['querverweis'])?></small><?php endif; ?></td>
+  <td style="color:#555"><?=htmlspecialchars($p['composer']??'')?><?php if(!empty($p['arranger'])): ?><br><small>Arr. <?=htmlspecialchars($p['arranger'])?></small><?php endif; ?></td>
+  <td style="white-space:nowrap"><?=htmlspecialchars($p['duration'] ?? $p['duration_override'] ?? '–')?></td>
+</tr>
+<?php endif; ?>
 <?php endforeach; ?>
 <?php if ($totalSec > 0): ?>
 <tr><td></td><td class="total" colspan="2">Gesamtdauer:</td><td style="font-weight:700"><?=floor($totalSec/60)?>:<?=str_pad($totalSec%60,2,'0',STR_PAD_LEFT)?></td></tr>
@@ -479,7 +507,7 @@ $allPiecesJson = json_encode(
   array_map(function($ap){ return ['id'=>(int)$ap['id'],'title'=>$ap['title'],'composer'=>$ap['composer']??'','arranger'=>$ap['arranger']??'']; }, $allPieces),
   JSON_UNESCAPED_UNICODE
 );
-$usedIdsJson = json_encode(array_map('intval', array_column($selPieces, 'id')));
+$usedIdsJson = json_encode(array_values(array_filter(array_map('intval', array_column($selPieces, 'id')))));
 
 function concertDate(array $c): string {
   if (!empty($c['date'])) return date('d.m.Y', strtotime($c['date']));
@@ -651,12 +679,12 @@ sv_header('Auftrittchronik', $user);
       </div>
 
       <div class="card" style="margin-bottom:12px">
-        <h3 style="margin-bottom:12px">🎵 Programm (<?=count($selPieces)?> Stücke)</h3>
+        <h3 style="margin-bottom:12px">🎵 Programm (<?=$selPieceCount?> Stücke)</h3>
         <?php if ($selPieces): ?>
           <?php
             $totalSec = 0;
             foreach ($selPieces as $p) {
-              $d = trim($p['duration'] ?? '');
+              $d = trim((string)($p['duration'] ?? $p['duration_override'] ?? ''));
               $d = rtrim($d, "'\"");
               if (preg_match('/^(\d+)[:\'.](\d{1,2})$/', $d, $m)) $totalSec += (int)$m[1]*60+(int)$m[2];
               elseif (preg_match('/^\d+$/', $d)) $totalSec += (int)$d * 60;
@@ -672,9 +700,48 @@ sv_header('Auftrittchronik', $user);
             </tr></thead>
             <tbody id="prog-tbody">
             <?php foreach ($selPieces as $i => $p): ?>
-              <tr class="prog-row" data-pid="<?=h($p['id'])?>">
+              <?php $itype = $p['item_type'] ?? 'piece'; ?>
+              <?php if ($itype === 'halftime' || $itype === 'zugabe'): ?>
+              <?php $isZug = $itype === 'zugabe'; ?>
+              <tr class="prog-row" data-cpid="<?=h($p['cpid'])?>" style="background:<?=$isZug?'#fff7ed':'#f5f2ee'?>">
+                <?php if ($canEdit): ?><td style="color:var(--muted);text-align:center;cursor:grab;font-size:16px;user-select:none">⠿</td><?php endif; ?>
+                <td colspan="2" style="text-align:center;font-weight:700;letter-spacing:.05em;color:<?=$isZug?'#b45309':'var(--muted)'?>">── <?=h(($p['label'] ?? '') !== '' ? $p['label'] : ($isZug ? 'Zugaben' : 'Pause'))?> ──</td>
+                <td></td>
+                <?php if ($canEdit): ?>
+                <td>
+                  <form method="post">
+                    <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+                    <input type="hidden" name="action" value="remove_piece">
+                    <input type="hidden" name="cid" value="<?=$selectedId?>">
+                    <input type="hidden" name="cpid" value="<?=h($p['cpid'])?>">
+                    <button class="btn" type="submit" style="padding:2px 7px;font-size:12px;color:var(--red)">✕</button>
+                  </form>
+                </td>
+                <?php endif; ?>
+              </tr>
+              <?php elseif ($itype === 'block'): ?>
+              <tr class="prog-row" data-cpid="<?=h($p['cpid'])?>" style="background:#faf8f5">
+                <?php if ($canEdit): ?><td style="color:var(--muted);text-align:center;cursor:grab;font-size:16px;user-select:none">⠿</td><?php endif; ?>
+                <td><strong style="color:var(--muted)"><?=h(($p['label'] ?? '') !== '' ? $p['label'] : 'Block')?></strong></td>
+                <td class="small" style="color:var(--muted);font-style:italic">Programmpunkt</td>
+                <td class="small" style="white-space:nowrap"><?=h($p['duration_override'] ?? '–')?></td>
+                <?php if ($canEdit): ?>
+                <td>
+                  <form method="post">
+                    <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
+                    <input type="hidden" name="action" value="remove_piece">
+                    <input type="hidden" name="cid" value="<?=$selectedId?>">
+                    <input type="hidden" name="cpid" value="<?=h($p['cpid'])?>">
+                    <button class="btn" type="submit" style="padding:2px 7px;font-size:12px;color:var(--red)">✕</button>
+                  </form>
+                </td>
+                <?php endif; ?>
+              </tr>
+              <?php else: ?>
+              <tr class="prog-row" data-cpid="<?=h($p['cpid'])?>">
                 <?php if ($canEdit): ?><td style="color:var(--muted);text-align:center;cursor:grab;font-size:16px;user-select:none">⠿</td><?php endif; ?>
                 <td>
+                  <?php if ($p['id']): ?>
                   <button type="button" onclick="openPieceDetail(this)"
                     style="background:none;border:none;padding:0;cursor:pointer;text-align:left;font-family:inherit;font-size:inherit;line-height:inherit"
                     data-title="<?=h($p['title'])?>"
@@ -686,21 +753,25 @@ sv_header('Auftrittchronik', $user);
                     data-youtube="<?=h($p['youtube_url']??'')?>"
                     data-info="<?=h($p['info']??'')?>"
                   ><strong><?=h($p['title'])?></strong><?php if(!empty($p['querverweis'])): ?><span class="small" style="color:var(--muted)"> / <?=h($p['querverweis'])?></span><?php endif; ?></button>
+                  <?php else: ?>
+                  <strong><?=h(($p['label'] ?? '') !== '' ? $p['label'] : '–')?></strong> <span class="small" style="color:var(--muted)">(nicht in Bibliothek)</span>
+                  <?php endif; ?>
                 </td>
                 <td class="small" style="color:var(--muted)"><?=h($p['composer']??'')?><?php if(!empty($p['arranger'])): ?><div style="font-size:11px">Arr. <?=h($p['arranger'])?></div><?php endif; ?></td>
-                <td class="small" style="white-space:nowrap"><?=h($p['duration']??'–')?></td>
+                <td class="small" style="white-space:nowrap"><?=h($p['duration'] ?? $p['duration_override'] ?? '–')?></td>
                 <?php if ($canEdit): ?>
                 <td>
                   <form method="post">
                     <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
                     <input type="hidden" name="action" value="remove_piece">
                     <input type="hidden" name="cid" value="<?=$selectedId?>">
-                    <input type="hidden" name="pid" value="<?=h($p['id'])?>">
+                    <input type="hidden" name="cpid" value="<?=h($p['cpid'])?>">
                     <button class="btn" type="submit" style="padding:2px 7px;font-size:12px;color:var(--red)">✕</button>
                   </form>
                 </td>
                 <?php endif; ?>
               </tr>
+              <?php endif; ?>
             <?php endforeach; ?>
             <?php if ($totalSec > 0): ?>
               <tr>
@@ -847,9 +918,9 @@ document.querySelectorAll('.prog-row').forEach(function(row) {
 function saveOrder() {
   var rows = document.querySelectorAll('.prog-row');
   if (!rows.length) return;
-  var pids = Array.from(rows).map(function(r){ return r.dataset.pid; });
+  var cpids = Array.from(rows).map(function(r){ return r.dataset.cpid; });
   var body = 'action=reorder&csrf='+encodeURIComponent('<?=addslashes(sv_csrf_token())?>')+'&cid=<?=$selectedId?>';
-  pids.forEach(function(pid){ body += '&pids[]='+pid; });
+  cpids.forEach(function(id){ body += '&cpids[]='+id; });
   fetch('concerts.php', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:body });
 }
 

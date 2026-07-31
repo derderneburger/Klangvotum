@@ -239,10 +239,14 @@ function sv_ensure_schema(PDO $pdo): void {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
   // ── v2: concert_pieces — Verknüpfung Auftritt ↔ Stück ────────────────────
+  // piece_id NULL + item_type/label: Bloecke, Pause und Zugaben aus dem Konzertplaner
   $pdo->exec("CREATE TABLE IF NOT EXISTS concert_pieces (
       id         INT NOT NULL AUTO_INCREMENT,
       concert_id INT NOT NULL,
-      piece_id   INT NOT NULL,
+      piece_id   INT NULL,
+      item_type  ENUM('piece','block','halftime','zugabe') NOT NULL DEFAULT 'piece',
+      label      VARCHAR(255) NULL,
+      duration_override VARCHAR(20) NULL,
       position   INT NULL,
       PRIMARY KEY (id),
       UNIQUE KEY uq_concert_piece (concert_id, piece_id),
@@ -252,6 +256,17 @@ function sv_ensure_schema(PDO $pdo): void {
       CONSTRAINT fk_cp_piece   FOREIGN KEY (piece_id)   REFERENCES pieces   (id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+  // Migration fuer bestehende Installationen
+  try {
+    $cpItemCols = array_column($pdo->query("SHOW COLUMNS FROM concert_pieces")->fetchAll(), 'Field');
+    if (!in_array('item_type', $cpItemCols)) {
+      $pdo->exec("ALTER TABLE concert_pieces MODIFY COLUMN piece_id INT NULL");
+      $pdo->exec("ALTER TABLE concert_pieces ADD COLUMN item_type ENUM('piece','block','halftime','zugabe') NOT NULL DEFAULT 'piece' AFTER piece_id");
+      $pdo->exec("ALTER TABLE concert_pieces ADD COLUMN label VARCHAR(255) NULL AFTER item_type");
+      $pdo->exec("ALTER TABLE concert_pieces ADD COLUMN duration_override VARCHAR(20) NULL AFTER label");
+    }
+  } catch (Throwable $e) {}
+
   // ── v2: concert_plans — Gespeicherte Konzertplaene ──────────────────────────
   try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS concert_plans (
@@ -260,6 +275,7 @@ function sv_ensure_schema(PDO $pdo): void {
         variant     VARCHAR(100) NOT NULL DEFAULT 'A',
         user_id     INT NOT NULL,
         notes       TEXT NULL,
+        chronik_concert_id INT NULL,
         created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
@@ -267,10 +283,13 @@ function sv_ensure_schema(PDO $pdo): void {
         KEY idx_cplans_name (name)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-    // Migration: notes-Spalte fuer bestehende Installationen
+    // Migration: notes/chronik_concert_id fuer bestehende Installationen
     $cplanCols = array_column($pdo->query("SHOW COLUMNS FROM concert_plans")->fetchAll(), 'Field');
     if (!in_array('notes', $cplanCols)) {
       $pdo->exec("ALTER TABLE concert_plans ADD COLUMN notes TEXT NULL AFTER user_id");
+    }
+    if (!in_array('chronik_concert_id', $cplanCols)) {
+      $pdo->exec("ALTER TABLE concert_plans ADD COLUMN chronik_concert_id INT NULL AFTER notes");
     }
 
     // ── v2: concert_plan_items — Eintraege in einem Konzertplan ─────────────────

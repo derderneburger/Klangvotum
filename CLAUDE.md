@@ -170,6 +170,8 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 - Parken statt Löschen: Stücke aus dem Plan landen in der Ablage statt verloren zu gehen
 - Bemerkungen: freies Textfeld pro Plan (`concert_plans.notes`), Auto-Save mit Debounce on input/blur, wird beim Duplizieren mitkopiert und im Print-Export ausgegeben
 - Print-Export (`?export=print`): eigenständiges HTML im gleichen Stil wie concerts/bibliothek
+- **In Chronik übernehmen** (Button "🏛 In Chronik"): Dialog fragt Name/Datum/Ort ab, Notizen editierbar vorbefüllt; POST `to_chronik` legt per Transaktion einen `concerts`-Eintrag an und kopiert alle Plan-Items (auch Pause/Zugaben/Blöcke) nach `concert_pieces`. Songs werden über `songs.piece_id` auf Bibliotheks-Pieces aufgelöst; ohne Verknüpfung (oder bei doppeltem Piece) wird der Titel als freier Eintrag (`piece_id NULL` + `label`) gespeichert. `concert_plans.chronik_concert_id` merkt sich die Übernahme (Badge im Planer + Warnung vor Doppel-Übernahme)
+- Dafür wurde `concert_pieces` erweitert: `piece_id` ist NULL-fähig, `item_type` ENUM('piece','block','halftime','zugabe'), `label`, `duration_override`. Chronik-Programm (Detail + beide HTML-Exporte) rendert Separatoren/Blöcke; Entfernen/Sortieren läuft über `concert_pieces.id` (`cpid`), nicht mehr über `piece_id`. CSV-Export enthält weiterhin nur echte Stücke (INNER JOIN)
 
 ## Dateistruktur
 

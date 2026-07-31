@@ -62,6 +62,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: ' . $base . '/admin/planer.php');
     exit;
 
+  // ── Plan als gespieltes Konzert in die Chronik uebernehmen ──
+  } elseif ($action === 'to_chronik') {
+    $planId = (int)($_POST['plan_id'] ?? 0);
+    $cName  = trim($_POST['c_name'] ?? '');
+    $cDate  = trim($_POST['c_date'] ?? '');
+    $cLoc   = trim($_POST['c_location'] ?? '');
+    $cNotes = trim($_POST['c_notes'] ?? '');
+    $plan = null;
+    if ($planId) {
+      $ps = $pdo->prepare("SELECT * FROM concert_plans WHERE id = ?");
+      $ps->execute([$planId]);
+      $plan = $ps->fetch();
+    }
+    if (!$plan) {
+      sv_flash_set('error', 'Plan nicht gefunden.');
+      header('Location: ' . $base . '/admin/planer.php');
+      exit;
+    }
+    if ($cName === '') {
+      sv_flash_set('error', 'Name ist Pflichtfeld.');
+      header('Location: ' . $base . '/admin/planer.php?plan_id=' . $planId);
+      exit;
+    }
+    $date = ($cDate !== '' && strtotime($cDate) !== false) ? date('Y-m-d', strtotime($cDate)) : null;
+    $year = $date ? (int)date('Y', strtotime($date)) : null;
+    try {
+      $pdo->beginTransaction();
+      $pdo->prepare("INSERT INTO concerts (name, date, year, location, notes) VALUES (?,?,?,?,?)")
+          ->execute([$cName, $date, $year, $cLoc !== '' ? $cLoc : null, $cNotes !== '' ? $cNotes : null]);
+      $concertId = (int)$pdo->lastInsertId();
+
+      // Plan-Items in Reihenfolge uebernehmen (ohne Ablage)
+      $items = $pdo->prepare("
+        SELECT cpi.*,
+               s.piece_id AS song_piece_id, s.title AS song_title, s.duration AS song_duration,
+               p.id AS lib_piece_id, p.title AS piece_title, p.duration AS piece_duration
+        FROM concert_plan_items cpi
+        LEFT JOIN songs  s ON cpi.source='song'  AND cpi.piece_id = s.id
+        LEFT JOIN pieces p ON cpi.source='piece' AND cpi.piece_id = p.id
+        WHERE cpi.plan_id = ? AND cpi.item_type != 'parked'
+        ORDER BY cpi.position ASC
+      ");
+      $items->execute([$planId]);
+      $ins = $pdo->prepare("INSERT INTO concert_pieces (concert_id, piece_id, position, item_type, label, duration_override) VALUES (?,?,?,?,?,?)");
+      $pos = 0; $usedPids = [];
+      foreach ($items as $it) {
+        $pos++;
+        if ($it['item_type'] === 'halftime') { $ins->execute([$concertId, null, $pos, 'halftime', 'Pause', null]); continue; }
+        if ($it['item_type'] === 'zugabe')   { $ins->execute([$concertId, null, $pos, 'zugabe', 'Zugaben', null]); continue; }
+        if ($it['item_type'] === 'block')    { $ins->execute([$concertId, null, $pos, 'block', ($it['label'] ?? '') !== '' ? $it['label'] : 'Block', $it['duration_override'] ?: null]); continue; }
+        // Stueck: Bibliotheks-Piece aufloesen (Song → verknuepftes Piece)
+        if ($it['source'] === 'song') {
+          $rpid  = $it['song_piece_id'] ? (int)$it['song_piece_id'] : null;
+          $title = $it['song_title'];
+          $dur   = $it['song_duration'];
+        } else {
+          if (!$it['lib_piece_id']) continue; // Piece existiert nicht mehr
+          $rpid  = (int)$it['piece_id'];
+          $title = $it['piece_title'];
+          $dur   = $it['piece_duration'];
+        }
+        if ($rpid === null && ($title === null || $title === '')) continue;
+        if ($rpid !== null && !isset($usedPids[$rpid])) {
+          $usedPids[$rpid] = true;
+          $ins->execute([$concertId, $rpid, $pos, 'piece', null, null]);
+        } else {
+          // Ohne Bibliotheksbezug (oder Piece doppelt im Plan): Titel als freien Eintrag speichern
+          $ins->execute([$concertId, null, $pos, 'piece', $title, $dur ?: null]);
+        }
+      }
+      $pdo->prepare("UPDATE concert_plans SET chronik_concert_id = ? WHERE id = ?")->execute([$concertId, $planId]);
+      $pdo->commit();
+      sv_log($admin['id'], 'plan_to_chronik', "plan=$planId concert=$concertId name=$cName");
+      sv_flash_set('success', 'Plan als Auftritt „' . $cName . '“ in die Chronik übernommen.');
+      header('Location: ' . $base . '/admin/concerts.php?cid=' . $concertId);
+      exit;
+    } catch (Throwable $e) {
+      if ($pdo->inTransaction()) $pdo->rollBack();
+      sv_flash_set('error', 'Übernahme fehlgeschlagen: ' . $e->getMessage());
+      header('Location: ' . $base . '/admin/planer.php?plan_id=' . $planId);
+      exit;
+    }
+
   // ── Item hinzufuegen (AJAX) ──
   } elseif ($action === 'add_item') {
     $planId   = (int)($_POST['plan_id'] ?? 0);
@@ -275,6 +358,14 @@ if ($planId) {
   } else {
     $planId = 0;
   }
+}
+
+// Wurde dieser Plan bereits in die Chronik uebernommen?
+$chronikConcert = null;
+if ($currentPlan && !empty($currentPlan['chronik_concert_id'])) {
+  $cc = $pdo->prepare("SELECT id, name FROM concerts WHERE id = ?");
+  $cc->execute([(int)$currentPlan['chronik_concert_id']]);
+  $chronikConcert = $cc->fetch() ?: null;
 }
 
 // ── Druckansicht ──────────────────────────────────────────────────────────────
@@ -513,6 +604,7 @@ sv_header('Konzertplaner', $admin);
       <?php if ($currentPlan): ?>
         <button class="btn" onclick="document.getElementById('dlg-duplicate').showModal()">Variante duplizieren</button>
         <a class="btn" href="?plan_id=<?=$planId?>&export=print" target="_blank">Drucken</a>
+        <button class="btn" onclick="document.getElementById('dlg-chronik').showModal()">🏛 In Chronik</button>
         <button class="btn" style="color:var(--red)" onclick="if(confirm('Plan «<?=h(addslashes($currentPlan['name']))?>» (Variante <?=h(addslashes($currentPlan['variant']))?>)\nwirklich löschen?')){var f=document.getElementById('frm-delete');f.submit();}">Löschen</button>
       <?php endif; ?>
     </div>
@@ -645,6 +737,9 @@ sv_header('Konzertplaner', $admin);
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <h3><?=h($currentPlan['name'])?> <span class="badge" style="vertical-align:middle"><?=h($currentPlan['variant'])?></span></h3>
+        <?php if ($chronikConcert): ?>
+        <a class="badge" href="<?=h($base)?>/admin/concerts.php?cid=<?=(int)$chronikConcert['id']?>" style="background:var(--green-light);color:var(--green);border-color:var(--green-mid);text-decoration:none" title="Zum Chronik-Eintrag „<?=h($chronikConcert['name'])?>“">✓ In Chronik übernommen</a>
+        <?php endif; ?>
       </div>
 
       <div id="plan-list">
@@ -817,6 +912,45 @@ sv_header('Konzertplaner', $admin);
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
           <button type="button" class="btn" onclick="this.closest('dialog').close()">Abbrechen</button>
           <button type="submit" class="btn" style="background:var(--red);color:#fff">Duplizieren</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="dlg-chronik" class="sv-dialog">
+  <div class="sv-dialog__panel" tabindex="-1">
+    <div class="sv-dialog__head">
+      <div>
+        <div class="sv-dialog__title">In Chronik übernehmen</div>
+        <div class="sv-dialog__sub"><?=h($currentPlan['name'])?> · Variante <?=h($currentPlan['variant'])?></div>
+      </div>
+      <button class="sv-dialog__close" type="button" data-close-dialog>✕</button>
+    </div>
+    <div class="sv-dialog__section">
+      <?php if ($chronikConcert): ?>
+      <div class="small" style="background:#fff8e1;border:1px solid rgba(184,134,11,.3);border-radius:8px;padding:8px 12px;margin-bottom:12px;color:#b8860b">
+        ⚠ Dieser Plan wurde bereits als <strong>„<?=h($chronikConcert['name'])?>“</strong> in die Chronik übernommen.
+        Eine erneute Übernahme erzeugt einen <strong>zweiten</strong> Chronik-Eintrag.
+      </div>
+      <?php endif; ?>
+      <div class="small" style="color:var(--muted);margin-bottom:12px">
+        Der komplette Plan — inkl. Pause, Zugaben und Blöcken — wird als gespielter Auftritt in die Chronik übernommen.
+      </div>
+      <form method="post">
+        <input type="hidden" name="csrf" value="<?=h($csrf)?>">
+        <input type="hidden" name="action" value="to_chronik">
+        <input type="hidden" name="plan_id" value="<?=$planId?>">
+        <label>Name *<br><input class="input" name="c_name" required value="<?=h($currentPlan['name'])?>" style="width:100%;margin-top:4px"></label>
+        <label style="display:block;margin-top:10px">Datum *<br><input class="input" type="date" name="c_date" required style="width:100%;margin-top:4px"></label>
+        <label style="display:block;margin-top:10px">Auftrittsort<br><input class="input" name="c_location" placeholder="z.B. Stadthalle Hildesheim" style="width:100%;margin-top:4px"></label>
+        <label style="display:block;margin-top:10px">Notizen für die Chronik<br>
+          <textarea class="input" name="c_notes" rows="4" style="width:100%;margin-top:4px;resize:vertical"><?=h($currentPlan['notes'] ?? '')?></textarea>
+        </label>
+        <div class="small" style="color:var(--muted);margin-top:4px">Vorbefüllt mit den Planungsnotizen — hier anpassen, es wird nur übernommen, was in diesem Feld steht.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+          <button type="button" class="btn" onclick="this.closest('dialog').close()">Abbrechen</button>
+          <button type="submit" class="btn" style="background:var(--red);color:#fff">In Chronik übernehmen</button>
         </div>
       </form>
     </div>
