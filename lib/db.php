@@ -51,6 +51,40 @@ function sv_ensure_schema(PDO $pdo): void {
       KEY idx_locked_until (locked_until)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+  // ── settings — Key-Value fuer Kartenanzeige (admin/kartenanzeige.php, index.php) ──
+  // Nicht zu verwechseln mit app_settings (allgemeine App-Konfiguration, siehe unten)
+  $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
+      `key`   VARCHAR(64) NOT NULL,
+      `value` TEXT NOT NULL,
+      PRIMARY KEY (`key`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+  // ── users — Benutzerkonten ──────────────────────────────────────────────
+  // Basis-Struktur; role/has_chronik/has_noten werden von der Migration direkt darunter ergänzt
+  $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+      id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      username      VARCHAR(50)  NOT NULL,
+      display_name  VARCHAR(100) NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      is_admin      TINYINT(1)   NOT NULL DEFAULT 0,
+      is_active     TINYINT(1)   NOT NULL DEFAULT 1,
+      created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY username (username)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+  // ── audit_log — Chronik/Audit-Log (sv_log()) ────────────────────────────
+  $pdo->exec("CREATE TABLE IF NOT EXISTS audit_log (
+      id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id    INT UNSIGNED NULL,
+      action     VARCHAR(100) NOT NULL,
+      details    TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY created_at (created_at),
+      KEY action (action)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
   // ── v2: users.role ────────────────────────────────────────────────────────
   // Spalte role hinzufügen falls noch nicht vorhanden
   $cols = $pdo->query("SHOW COLUMNS FROM users LIKE 'role'")->fetchAll();
@@ -78,6 +112,18 @@ function sv_ensure_schema(PDO $pdo): void {
   if (!in_array('has_noten', $userCols)) {
     $pdo->exec("ALTER TABLE users ADD COLUMN has_noten TINYINT(1) NOT NULL DEFAULT 0 AFTER has_chronik");
   }
+
+  // ── songs — Abstimmungstitel ─────────────────────────────────────────────
+  // Basis-Struktur; weitere Felder werden von der Migration direkt darunter ergänzt
+  $pdo->exec("CREATE TABLE IF NOT EXISTS songs (
+      id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      title       VARCHAR(255)  NOT NULL,
+      youtube_url VARCHAR(2048) NOT NULL,
+      is_active   TINYINT(1)    NOT NULL DEFAULT 1,
+      created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY is_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
   // ── v2: songs — neue Felder ───────────────────────────────────────────────
   $songCols = array_column($pdo->query("SHOW COLUMNS FROM songs")->fetchAll(), 'Field');
@@ -224,6 +270,31 @@ function sv_ensure_schema(PDO $pdo): void {
       KEY idx_psugg_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+
+  // ── votes — aktive Stimmen ───────────────────────────────────────────────
+  $pdo->exec("CREATE TABLE IF NOT EXISTS votes (
+      user_id    INT UNSIGNED NOT NULL,
+      song_id    INT UNSIGNED NOT NULL,
+      vote       ENUM('ja','nein','neutral') NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, song_id),
+      KEY fk_votes_song (song_id),
+      CONSTRAINT fk_votes_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      CONSTRAINT fk_votes_song FOREIGN KEY (song_id) REFERENCES songs (id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+  // ── vote_notes — Notizen der Nutzer zu ihrer Stimme ──────────────────────
+  $pdo->exec("CREATE TABLE IF NOT EXISTS vote_notes (
+      user_id    INT UNSIGNED NOT NULL,
+      song_id    INT UNSIGNED NOT NULL,
+      note       TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, song_id),
+      KEY fk_vote_notes_song (song_id),
+      CONSTRAINT fk_vote_notes_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+      CONSTRAINT fk_vote_notes_song FOREIGN KEY (song_id) REFERENCES songs (id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
   // ── v2: vote_history — historische Stimmen nach Archivierung ────────────────
   $pdo->exec("CREATE TABLE IF NOT EXISTS vote_history (

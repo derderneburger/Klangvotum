@@ -30,10 +30,12 @@
 - `h()` — Alias für `htmlspecialchars()`
 
 ### Datenbankstruktur
-- `app_settings` — Key-Value-Tabelle für Runtime-Konfiguration
+- `app_settings` — Key-Value-Tabelle für Runtime-Konfiguration (allgemeine App-Einstellungen)
+- `settings` — separate Key-Value-Tabelle NUR für die Kartenanzeige (`admin/kartenanzeige.php`, `index.php`) — nicht verwechseln mit `app_settings`
 - Soft-Delete-Pattern: `deleted_at` Spalte statt echtem Löschen (Konzerte, Abstimmungstitel, Bibliothek)
-- `sv_ensure_schema()` in `lib/db.php` erstellt alle Tabellen automatisch
-- Zentrale Tabellen: `users`, `songs`, `pieces`, `votes`, `vote_history`, `concerts`, `concert_pieces`, `concert_plans`, `concert_plan_items`, `piece_loans`, `piece_suggestions`, `tags`/`piece_tags`/`song_tags`, `app_settings`, `audit_log`
+- `sv_ensure_schema()` in `lib/db.php` erstellt **alle** Tabellen automatisch beim ersten Aufruf — eine frische Installation braucht keinen manuellen SQL-Import mehr (Stand 2026-07-31; vorher fehlten `users`/`songs`/`votes`/`vote_notes`/`audit_log`/`settings`, deren Struktur wurde per `SHOW CREATE TABLE` aus der Live-DB rekonstruiert und 1:1 übernommen)
+- Zentrale Tabellen: `users`, `songs`, `votes`, `vote_notes`, `pieces`, `vote_history`, `concerts`, `concert_pieces`, `concert_plans`, `concert_plan_items`, `piece_loans`, `piece_suggestions`, `tags`/`piece_tags`/`song_tags`, `app_settings`, `settings`, `audit_log`
+- `votes`/`vote_notes` haben Foreign Keys auf `users.id` und `songs.id` (ON DELETE CASCADE) — deshalb werden sie in `sv_ensure_schema()` erst NACH den Basis-Tabellen `users`/`songs` angelegt
 
 ### Genre-System (Tags)
 - **Technisch** 3 Tabellen: `tags`, `piece_tags`, `song_tags` (Many-to-Many)
