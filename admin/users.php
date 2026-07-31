@@ -160,7 +160,7 @@ $leitungLabel = sv_setting_get('leitung_role_label', 'Leitung');
 
   <div class="card" style="margin-top:0">
     <h3>Wer kann was?</h3>
-    <div class="small" style="color:var(--muted);margin-bottom:10px">Die zwei Häkchen (📚 Noten-Zugriff, 🏛 Chronik-Zugriff) gelten unabhängig von der Rolle — <strong>außer bei Admin: der hat immer alles.</strong></div>
+    <div class="small" style="color:var(--muted);margin-bottom:10px">Die zwei Häkchen (📚 Noten-Zugriff, 🏛 Chronik-Zugriff) gelten unabhängig von der Rolle — außer bei Admin: der hat immer alles. Ausnahme: „In Chronik übernehmen" im Planer ist bewusst <strong>nur Admin</strong> vorbehalten, auch mit 🏛-Haken.</div>
     <div class="table-scroll">
     <table style="font-size:12.5px">
       <thead><tr>
@@ -179,7 +179,7 @@ $leitungLabel = sv_setting_get('leitung_role_label', 'Leitung');
         <tr><td>Chronik ansehen</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
         <tr><td>Chronik bearbeiten (Auftritte anlegen, Stücke zuordnen)</td><td style="text-align:center">nur mit 🏛</td><td style="text-align:center">nur mit 🏛</td><td style="text-align:center">✓</td></tr>
         <tr><td>Konzertplaner öffnen</td><td style="text-align:center">–</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
-        <tr><td>Im Planer „In Chronik übernehmen"</td><td style="text-align:center">–</td><td style="text-align:center">nur mit 🏛</td><td style="text-align:center">✓</td></tr>
+        <tr><td>Im Planer „In Chronik übernehmen"</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">nur Admin</td></tr>
         <tr><td>Fortschritt-Seite</td><td style="text-align:center">–</td><td style="text-align:center">✓</td><td style="text-align:center">✓</td></tr>
         <tr><td>Einfrieren, Kartenanzeige, Einstellungen, Benutzer, Wartung</td><td style="text-align:center">–</td><td style="text-align:center">–</td><td style="text-align:center">✓</td></tr>
       </tbody>
