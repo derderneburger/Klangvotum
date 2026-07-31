@@ -551,14 +551,6 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
             <?php if(!empty($p['publisher'])): ?><div class="small"><?=h($p['publisher'])?></div><?php endif; ?>
             <?php if(!empty($p['youtube_url'])): ?><div><a class="song-link" href="<?=h($p['youtube_url'])?>" target="_blank" rel="noopener">▶ YouTube öffnen</a></div><?php endif; ?>
             <?php if(in_array((int)$p['id'],$activeSongPieceIds)): ?><div><span class="badge" style="background:var(--green-light);color:var(--green);border-color:var(--green-mid);font-size:11px">in Abstimmung</span></div><?php endif; ?>
-            <?php if(!empty($concertsByPiece[(int)$p['id']])): ?>
-              <div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px">
-              <?php foreach(array_slice($concertsByPiece[(int)$p['id']],0,3) as $cp): ?>
-                <span class="badge" style="font-size:10px;padding:1px 6px"><?=h($cp['name'])?><?php if($cp['year']): ?> <?=(int)$cp['year']?><?php endif; ?></span>
-              <?php endforeach; ?>
-              <?php if(count($concertsByPiece[(int)$p['id']])>3): ?><span class="small" style="color:var(--muted)">+<?=count($concertsByPiece[(int)$p['id']])-3?></span><?php endif; ?>
-              </div>
-            <?php endif; ?>
             <?php if(!empty($p['loaned_to'])): ?>
               <div><span class="bib-loan-badge">📦 Verliehen an <?=h($p['loaned_to'])?> seit <?=date('d.m.Y', strtotime($p['loaned_at']))?></span></div>
             <?php endif; ?>
