@@ -5,6 +5,7 @@ require_once __DIR__ . '/../lib/layout.php';
 $admin = sv_require_leitung();
 $pdo   = sv_pdo();
 $base  = sv_base_url();
+$canEditChronik = sv_can_edit_chronik($admin);
 
 // ── POST-Handler ──────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -64,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
   // ── Plan als gespieltes Konzert in die Chronik uebernehmen ──
   } elseif ($action === 'to_chronik') {
+    if (!sv_can_edit_chronik($admin)) { http_response_code(403); exit('Forbidden'); }
     $planId = (int)($_POST['plan_id'] ?? 0);
     $cName  = trim($_POST['c_name'] ?? '');
     $cDate  = trim($_POST['c_date'] ?? '');
@@ -604,7 +606,9 @@ sv_header('Konzertplaner', $admin);
       <?php if ($currentPlan): ?>
         <button class="btn" onclick="document.getElementById('dlg-duplicate').showModal()">Variante duplizieren</button>
         <a class="btn" href="?plan_id=<?=$planId?>&export=print" target="_blank">Drucken</a>
+        <?php if ($canEditChronik): ?>
         <button class="btn" onclick="document.getElementById('dlg-chronik').showModal()">🏛 In Chronik</button>
+        <?php endif; ?>
         <button class="btn" style="color:var(--red)" onclick="if(confirm('Plan «<?=h(addslashes($currentPlan['name']))?>» (Variante <?=h(addslashes($currentPlan['variant']))?>)\nwirklich löschen?')){var f=document.getElementById('frm-delete');f.submit();}">Löschen</button>
       <?php endif; ?>
     </div>
@@ -918,6 +922,7 @@ sv_header('Konzertplaner', $admin);
   </div>
 </dialog>
 
+<?php if ($canEditChronik): ?>
 <dialog id="dlg-chronik" class="sv-dialog">
   <div class="sv-dialog__panel" tabindex="-1">
     <div class="sv-dialog__head">
@@ -956,6 +961,7 @@ sv_header('Konzertplaner', $admin);
     </div>
   </div>
 </dialog>
+<?php endif; ?>
 
 <dialog id="dlg-block" class="sv-dialog">
   <div class="sv-dialog__panel" tabindex="-1">
