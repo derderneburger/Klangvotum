@@ -283,10 +283,10 @@ tr:hover td{background:#faf8f5}
 .heat-neg{background:linear-gradient(90deg,var(--red),#ff6b6b)}
 
 /* ── ADMIN: GRID ────────────────────────────── */
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px;align-items:start}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
 @media(max-width:600px){.admin-grid{grid-template-columns:1fr}}
 
-.admin-section-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+.admin-section-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow);display:flex;flex-direction:column}
 .admin-section-card h3{margin-bottom:12px;color:var(--text)}
 .admin-btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 

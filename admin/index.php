@@ -230,6 +230,8 @@ sv_header($isAdmin ? 'Admin' : 'Verwaltung', $u);
 <style>
   .asc-illus {
     display:flex;align-items:center;gap:16px;
+    /* füllt die (durch die Nachbarkachel) gestreckte Karte, damit der Inhalt mittig sitzt */
+    flex:1;
   }
   .asc-illus svg {
     flex-shrink:0;width:72px;height:72px;opacity:.25;color:var(--accent);
