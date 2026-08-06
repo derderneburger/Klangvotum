@@ -89,6 +89,13 @@ In `lib/layout.php` werden aus den 2 Farben 5+1 CSS-Variablen erzeugt:
 - Beim **Anlegen**: Prüfung gegen `pieces` UND `songs` (verhindert Doppel-Einträge)
 - Beim **Bearbeiten**: Prüfung nur gegen `pieces` (Songs-Prüfung übersprungen, da das Stück bereits verknüpft sein kann)
 
+### Suchtext bleibt nach Aktionen erhalten (Bibliothek + Abstimmungstitel)
+- Die Live-Suche (`bib-live-q`/`song-live-q`) ist rein clientseitig, filtert nur die bereits geladene Tabelle — kein Seiten-Reload beim Tippen
+- Jedes Formular auf der Seite trägt ein verstecktes `_q`-Feld; ein globaler `document.addEventListener('submit', ..., true)` überschreibt dessen Wert unmittelbar vor dem Absenden mit dem AKTUELLEN Inhalt des Suchfelds (nicht dem beim Seitenaufbau gerenderten `$_GET['q']`, der könnte veraltet sein)
+- Der PHP-Redirect am Ende jedes POST-Handlers hängt `?q=...` aus `$_POST['_q']` an — dadurch bleibt der Suchtext nach Bearbeiten/Löschen/Verleihen etc. erhalten, weil die Seite mit demselben `q`-Parameter neu lädt
+- Verschwindet bewusst trotzdem, wenn man die Seite über einen normalen Link verlässt (z. B. zur Bibliothek wechselt) und zurückkommt — dort gibt's keinen `q`-Parameter in der URL
+- **Beim Ergänzen neuer Formulare auf diesen Seiten**: `<input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">` nicht vergessen, sonst geht der Filter bei dieser einen Aktion wieder verloren
+
 ### Geteilte Dialoge (Performance-Muster — mehrere Seiten)
 **Grundregel: niemals einen Dialog pro Tabellenzeile rendern.** Stattdessen ein geteilter Dialog pro Typ, per JS aus einem JSON-Objekt befüllt. Besonders teuer sind Formulare mit `sv_tag_widget()`, weil das die komplette Tag-Liste in ZWEI Dropdowns rendert. Umgesetzt in:
 - `admin/bibliothek.php` → `BIB_FORM_DATA`, `openPieceDialog/openLoanDialog/openSoftdelDialog`

@@ -584,7 +584,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
                 <?php if ($canEdit): ?>
                 <button class="piece-menu-item" type="button" data-open-dialog="dialog-edit-<?=h($p['id'])?>" onclick="closeMenus()">✏️ Bearbeiten</button>
                 <?php if(!in_array((int)$p['id'],$activeSongPieceIds)): ?>
-                <form method="post"><input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="action" value="to_song"><input type="hidden" name="pid" value="<?=h($p['id'])?>">
+                <form method="post"><input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="action" value="to_song"><input type="hidden" name="pid" value="<?=h($p['id'])?>"><input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
                   <button class="piece-menu-item" type="submit">🎵 Zur Abstimmung</button>
                 </form>
                 <?php else: ?><div class="piece-menu-item" style="opacity:.5;cursor:default">🎵 Bereits aktiv</div><?php endif; ?>
@@ -592,13 +592,13 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
                 <button class="piece-menu-item" type="button" data-open-dialog="dialog-loan-<?=h($p['id'])?>" onclick="closeMenus()">📦 Verleihen</button>
                 <?php else: ?>
                 <form method="post" onsubmit="return confirm('Rückgabe von „<?=h(addslashes($p['title']))?>" bestätigen?')">
-                  <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="action" value="loan_return"><input type="hidden" name="pid" value="<?=h($p['id'])?>">
+                  <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="action" value="loan_return"><input type="hidden" name="pid" value="<?=h($p['id'])?>"><input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
                   <button class="piece-menu-item" type="submit" style="color:var(--green)">📦 Rückgabe</button>
                 </form>
                 <?php endif; ?>
                 <?php if ($isAdmin): ?>
                 <form method="post" onsubmit="return confirm('Stück wirklich löschen?')">
-                  <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="pid" value="<?=h($p['id'])?>">
+                  <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="pid" value="<?=h($p['id'])?>"><input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
                   <button class="piece-menu-item" type="submit" style="color:var(--red)">🗑 Löschen</button>
                 </form>
                 <?php else: ?>
@@ -731,6 +731,7 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
         <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
         <input type="hidden" name="action" value="loan">
         <input type="hidden" name="pid" value="">
+        <input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
         <label style="display:block;margin-bottom:12px">Ausgeliehen an <span style="color:var(--red)">*</span><br>
           <input class="input" type="text" name="loaned_to" required placeholder="z.B. Musikverein Musterstadt" style="width:100%;margin-top:5px">
         </label>
@@ -1026,17 +1027,17 @@ function showDetail(row) {
   var btns = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:12px;border-top:1px solid var(--border)">';
   btns += '<button class="btn primary" type="button" data-open-dialog="dialog-edit-'+id+'">Bearbeiten</button>';
     if (d.dataset.active !== '1') {
-      btns += '<form method="post" style="display:contents"><input type="hidden" name="csrf" value=""><input type="hidden" name="action" value="to_song"><input type="hidden" name="pid" value="'+id+'"><button class="btn" type="submit">→ Abstimmung</button></form>';
+      btns += '<form method="post" style="display:contents"><input type="hidden" name="csrf" value=""><input type="hidden" name="action" value="to_song"><input type="hidden" name="pid" value="'+id+'"><input type="hidden" name="_q" value=""><button class="btn" type="submit">→ Abstimmung</button></form>';
     } else {
       btns += '<button class="btn" type="button" disabled style="opacity:.5;cursor:default">🎵 Bereits aktiv</button>';
     }
     if (!d.dataset.loanedTo) {
       btns += '<button class="btn" type="button" data-open-dialog="dialog-loan-'+id+'">📦 Verleihen</button>';
     } else {
-      btns += '<form method="post" style="display:contents" onsubmit="return confirm(\'Rückgabe bestätigen?\')"><input type="hidden" name="csrf" value=""><input type="hidden" name="action" value="loan_return"><input type="hidden" name="pid" value="'+id+'"><button class="btn" type="submit" style="color:var(--green)">📦 Rückgabe</button></form>';
+      btns += '<form method="post" style="display:contents" onsubmit="return confirm(\'Rückgabe bestätigen?\')"><input type="hidden" name="csrf" value=""><input type="hidden" name="action" value="loan_return"><input type="hidden" name="pid" value="'+id+'"><input type="hidden" name="_q" value=""><button class="btn" type="submit" style="color:var(--green)">📦 Rückgabe</button></form>';
     }
     <?php if ($isAdmin): ?>
-    btns += '<form method="post" style="display:contents" onsubmit="return confirm(\'Stück wirklich löschen?\')"><input type="hidden" name="csrf" value=""><input type="hidden" name="action" value="delete"><input type="hidden" name="pid" value="'+id+'"><button class="btn" type="submit" style="color:var(--red)">🗑 Löschen</button></form>';
+    btns += '<form method="post" style="display:contents" onsubmit="return confirm(\'Stück wirklich löschen?\')"><input type="hidden" name="csrf" value=""><input type="hidden" name="action" value="delete"><input type="hidden" name="pid" value="'+id+'"><input type="hidden" name="_q" value=""><button class="btn" type="submit" style="color:var(--red)">🗑 Löschen</button></form>';
     <?php else: ?>
     btns += '<button class="btn" type="button" data-open-dialog="dialog-softdel-'+id+'" style="color:var(--red)">🗑 Löschen</button>';
     <?php endif; ?>
@@ -1106,6 +1107,13 @@ function bibFilter() {
     if (e.key === 'Enter') { e.preventDefault(); bibFilter(); }
   });
   bibFilter();
+  // Suchtext beim Absenden JEDES Formulars mit uebertragen, damit er nach dem
+  // Redirect (z.B. nach Bearbeiten/Verleihen/Loeschen) erhalten bleibt.
+  // Verschwindet dadurch weiterhin, sobald man die Seite tatsaechlich verlaesst.
+  document.addEventListener('submit', function(e){
+    var qField = e.target.querySelector('input[name="_q"]');
+    if (qField) qField.value = inp.value;
+  }, true);
 })();
 </script>
 <script>

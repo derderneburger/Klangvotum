@@ -525,6 +525,7 @@ if ($flashError && $flashError !== '__archive_conflict__') {
       <form method="post" class="grid" style="gap:12px">
         <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>">
         <input type="hidden" name="action" value="create">
+        <input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
         <?= songFormFields([], []) ?>
         <div class="row" style="gap:10px">
           <button class="btn primary" type="submit">Hinzufügen</button>
@@ -740,17 +741,17 @@ function openSongSoftdelDialog(id) {
               <div class="song-menu" style="display:none;position:fixed;background:#fff;border:1.5px solid var(--border);border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.1);z-index:9999;min-width:190px;overflow:hidden">
                 <button class="song-menu-item" type="button" data-open-dialog="edit-song-<?=h($s['id'])?>">✏️ Bearbeiten</button>
                 <?php if(!$s['piece_id'] || empty($s['piece_title'])): ?>
-                <form method="post"><input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="sid" value="<?=h($s['id'])?>">
+                <form method="post"><input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="sid" value="<?=h($s['id'])?>"><input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
                   <?php if($s['piece_id'] && empty($s['piece_title'])): ?><input type="hidden" name="reset_piece_id" value="1"><?php endif; ?>
                   <button class="song-menu-item" name="action" value="to_archive" type="submit">📚 → Archiv</button>
                 </form>
                 <?php else: ?><div class="song-menu-item" style="opacity:.5;cursor:default">📚 Im Archiv</div><?php endif; ?>
-                <form method="post"><input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="sid" value="<?=h($s['id'])?>">
+                <form method="post"><input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="sid" value="<?=h($s['id'])?>"><input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
                   <button class="song-menu-item" name="action" value="toggle_active" type="submit"><?= $s['is_active'] ? '⏸ Deaktivieren' : '▶ Aktivieren' ?></button>
                 </form>
                 <?php if ($isAdmin): ?>
                 <form method="post" onsubmit="return confirm('<?= $s['piece_id'] ? 'Titel löschen? Stimmen bleiben im Archiv.' : 'Titel löschen? Stimmen gehen verloren.' ?>')">
-                  <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="sid" value="<?=h($s['id'])?>">
+                  <input type="hidden" name="csrf" value="<?=h(sv_csrf_token())?>"><input type="hidden" name="sid" value="<?=h($s['id'])?>"><input type="hidden" name="_q" value="<?=h($_GET['q'] ?? '')?>">
                   <button class="song-menu-item" name="action" value="delete" type="submit" style="color:var(--red)">🗑 Löschen</button>
                 </form>
                 <?php else: ?>
@@ -919,6 +920,13 @@ function songFilter() {
     if (e.key === 'Enter') { e.preventDefault(); songFilter(); }
   });
   songFilter();
+  // Suchtext beim Absenden JEDES Formulars mit uebertragen, damit er nach dem
+  // Redirect (z.B. nach Bearbeiten/Loeschen/Status aendern) erhalten bleibt.
+  // Verschwindet dadurch weiterhin, sobald man die Seite tatsaechlich verlaesst.
+  document.addEventListener('submit', function(e){
+    var qField = e.target.querySelector('input[name="_q"]');
+    if (qField) qField.value = inp.value;
+  }, true);
 })();
 </script>
 <script>
