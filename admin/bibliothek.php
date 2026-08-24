@@ -350,10 +350,12 @@ $params = [];
 if (!$isAdmin) {
   $conds[] = "deleted_at IS NULL";
 }
-if ($search !== '') {
-  $conds[] = "(title LIKE ? OR composer LIKE ? OR arranger LIKE ? OR owner LIKE ? OR EXISTS (SELECT 1 FROM piece_tags pt JOIN tags t ON t.id=pt.tag_id WHERE pt.piece_id=pieces.id AND t.name LIKE ?))";
-  $params  = array_merge($params, ["%$search%","%$search%","%$search%","%$search%","%$search%"]);
-}
+// WICHTIG: $search wird bewusst NICHT serverseitig gefiltert.
+// Die Suche dieser Seite laeuft rein clientseitig (bibFilter() ueber alle geladenen
+// Zeilen). Wuerde der Server zusaetzlich vorfiltern, staenden nach einem Redirect mit
+// ?q=... nur noch die Treffer im DOM — eine Suche nach einem ANDEREN Stueck faende dann
+// nichts mehr, bis man die Seite ohne q-Parameter neu laedt.
+// $search dient nur noch als Startwert fuer das Suchfeld.
 
 $where   = $conds ? "WHERE ".implode(" AND ", $conds) : "";
 if ($sortBy === 'composer') {
@@ -614,8 +616,10 @@ function diffPill(mixed $d): string { return sv_diff_pill($d); }
 
       <?php endforeach; ?>
       <?php if(!$pieces): ?>
-        <tr><td colspan="8" class="small"><?= $search ? 'Keine Treffer für „'.h($search).'".' : 'Noch keine Stücke im Archiv. Stücke manuell anlegen oder per Import laden.' ?></td></tr>
+        <tr><td colspan="8" class="small">Noch keine Stücke im Archiv. Stücke manuell anlegen oder per Import laden.</td></tr>
       <?php endif; ?>
+      <!-- Wird von bibFilter() eingeblendet, wenn die clientseitige Suche 0 Treffer hat -->
+      <tr id="bib-no-hits" style="display:none"><td colspan="8" class="small">Keine Treffer für „<span id="bib-no-hits-q"></span>".</td></tr>
       </tbody>
     </table>
   </div>
@@ -1098,6 +1102,16 @@ function bibFilter() {
   });
   var ct = document.getElementById('bib-count');
   if (ct) ct.textContent = vis + ' Titel';
+  // "Keine Treffer"-Hinweis (die Filterung laeuft rein clientseitig, deshalb hier statt in PHP)
+  var noHits = document.getElementById('bib-no-hits');
+  if (noHits) {
+    var zeigen = (vis === 0 && q !== '' && !!tbody);
+    noHits.style.display = zeigen ? '' : 'none';
+    if (zeigen) {
+      var qs = document.getElementById('bib-no-hits-q');
+      if (qs) qs.textContent = inp.value.trim();
+    }
+  }
 }
 (function(){
   var inp = document.getElementById('bib-live-q');

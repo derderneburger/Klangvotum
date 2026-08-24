@@ -280,10 +280,12 @@ $params = [];
 if (!$isAdmin) {
   $conds[] = "s.deleted_at IS NULL";
 }
-if ($search !== '') {
-  $conds[] = "(s.title LIKE ? OR s.composer LIKE ? OR s.arranger LIKE ? OR EXISTS (SELECT 1 FROM song_tags st JOIN tags t ON t.id=st.tag_id WHERE st.song_id=s.id AND t.name LIKE ?))";
-  $params  = array_merge($params, ["%$search%","%$search%","%$search%","%$search%"]);
-}
+// WICHTIG: $search wird bewusst NICHT serverseitig gefiltert.
+// Die Suche dieser Seite laeuft rein clientseitig (songFilter() ueber alle geladenen
+// Zeilen). Wuerde der Server zusaetzlich vorfiltern, staenden nach einem Redirect mit
+// ?q=... nur noch die Treffer im DOM — eine Suche nach einem ANDEREN Titel faende dann
+// nichts mehr, bis man die Seite ohne q-Parameter neu laedt.
+// $search dient nur noch als Startwert fuer das Suchfeld.
 if ($fActive === '1') { $conds[] = "s.is_active = 1"; }
 if ($fActive === '0') { $conds[] = "s.is_active = 0"; }
 
@@ -764,8 +766,10 @@ function openSongSoftdelDialog(id) {
         </tr>
       <?php endforeach; ?>
       <?php if(!$songs): ?>
-        <tr><td colspan="8" class="small"><?= $search !== '' ? 'Keine Treffer für „'.h($search).'".' : 'Noch keine Titel.' ?></td></tr>
+        <tr><td colspan="8" class="small">Noch keine Titel.</td></tr>
       <?php endif; ?>
+      <!-- Wird von songFilter() eingeblendet, wenn die clientseitige Suche 0 Treffer hat -->
+      <tr id="song-no-hits" style="display:none"><td colspan="8" class="small">Keine Treffer für „<span id="song-no-hits-q"></span>".</td></tr>
       </tbody>
     </table>
   </div>
@@ -911,6 +915,16 @@ function songFilter() {
   });
   var ct = document.getElementById('song-count');
   if (ct) ct.textContent = vis + ' Titel';
+  // "Keine Treffer"-Hinweis (die Filterung laeuft rein clientseitig, deshalb hier statt in PHP)
+  var noHits = document.getElementById('song-no-hits');
+  if (noHits) {
+    var zeigen = (vis === 0 && q !== '');
+    noHits.style.display = zeigen ? '' : 'none';
+    if (zeigen) {
+      var qs = document.getElementById('song-no-hits-q');
+      if (qs) qs.textContent = inp.value.trim();
+    }
+  }
 }
 (function(){
   var inp = document.getElementById('song-live-q');
